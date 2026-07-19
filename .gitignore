@@ -7,8 +7,11 @@ test-results/
 .env
 .env.local
 .env.*.local
+!.env.example
 .vercel/
+supabase/.temp/
 *.tsbuildinfo
 
 .vercel
 .env*
+!.env.example
