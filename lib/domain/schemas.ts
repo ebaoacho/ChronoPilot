@@ -31,7 +31,7 @@ export const lifeCoachMessageSchema = z.object({
   content: z.string().trim().min(1).max(4000)
 });
 
-const coachBlockSchema = z.object({
+export const coachBlockSchema = z.object({
   title: z.string().trim().min(1).max(200),
   kind: z.enum(["sleep", "routine", "event", "travel", "task", "meal", "break", "growth", "game", "free"]),
   startsAt: z.string().datetime(),
