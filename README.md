@@ -1,5 +1,7 @@
 # ChronoPilot
 
+> 開発者向け: [AIの利用範囲と安全設計](docs/AI_ARCHITECTURE.md) / [Google Calendar同期・表示設計](docs/CALENDAR_INTEGRATION.md)
+
 「人生をデバッグするAI」をコンセプトにした、1人用のAI Life OSです。タスクを並べるのではなく、予定・移動・睡眠・必須作業・成長・休息を計算し、「今やること」を1つ表示します。ゲームは正当な休息として扱い、睡眠を削らずに再計画します。
 
 ## 実装済み

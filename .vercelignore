@@ -8,5 +8,6 @@ node_modules
 coverage
 playwright-report
 test-results
+supabase/.temp
 tests
 e2e
