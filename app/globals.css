@@ -68,6 +68,11 @@ button { cursor:pointer; }
 .coach-compose { display:grid; grid-template-columns:1fr auto; gap:9px; align-items:end; }
 .coach-compose textarea { min-height:54px; max-height:130px; resize:vertical; border:1px solid var(--line); background:var(--panel2); color:var(--text); border-radius:14px; padding:13px; }
 .calendar-source { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-top:5px; }
+.calendar-toolbar { display:flex; align-items:center; gap:8px; margin:12px 0 16px; }
+.calendar-arrow { width:44px; min-width:44px; padding:0; }
+.calendar-period { min-width:0; text-align:center; flex:1; }
+.calendar-day-group + .calendar-day-group { margin-top:22px; }
+.calendar-day-heading { position:sticky; top:0; z-index:2; margin:16px -4px 8px; padding:8px 4px; background:var(--panel); font-size:15px; }
 .ai-planner { margin-bottom:14px; }
 .ai-planner h2 { display:flex; align-items:center; gap:8px; }
 .planner-fields { display:grid; grid-template-columns:minmax(0,2fr) minmax(100px,1fr); gap:10px; }
