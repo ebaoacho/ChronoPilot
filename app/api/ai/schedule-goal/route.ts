@@ -3,6 +3,7 @@ import { OpenAiPlanningProvider } from "@/lib/ai/provider";
 import { createFallbackGoalDecomposition, scheduleGoalWork, type BusyInterval } from "@/lib/domain/goal-planner";
 import { createRecurringPlan, isRecurringScheduleText } from "@/lib/domain/recurring-planner";
 import { createMorningRoutinePlan, fallbackMorningRoutine, isMorningRoutineRequest } from "@/lib/domain/morning-routine-planner";
+import { createSleepSchedulePlan, isSleepScheduleRequest } from "@/lib/domain/sleep-schedule-planner";
 import { goalDecompositionSchema, goalPlanningRequestSchema } from "@/lib/domain/schemas";
 import { getGoogleAccessToken, listGoogleBusy, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
 import { createSupabaseServer, requireUser } from "@/lib/supabase/server";
@@ -60,6 +61,18 @@ export async function POST(request: Request) {
       const proposalId = crypto.randomUUID();
       const routine = createMorningRoutinePlan({ now, horizonDays: input.horizonDays, timezoneOffsetMinutes: input.timezoneOffsetMinutes, timeZone: input.timezone, proposalId, morningPrepMinutes, targetSleepMinutes, firstEventAt: earlyEvent, suggestion, requestText: input.text });
       return NextResponse.json({ proposalId, proposalType: "recurring", proposalKind: "morning_routine", goalTitle: routine.title, summary: routine.summary, deadlineAt: horizonEnd.toISOString(), blocks: routine.blocks, series: routine.series, recurrenceLabel: routine.recurrenceLabel, unscheduled: [], warnings, assumptions: routine.assumptions, aiMode, calendarConnected: Boolean(connection), writeMode: connection?.write_mode ?? "confirm" });
+    }
+
+    if (isSleepScheduleRequest(input.text)) {
+      const wakeBlock = busy.filter((item) => /起床/.test(item.title ?? "") && new Date(item.startsAt) > now).sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
+      const earlyEvent = busy.filter((item) => {
+        const date = new Date(item.startsAt); const local = new Date(date.getTime() - input.timezoneOffsetMinutes * 60000);
+        return !/(?:睡眠|就寝準備)/.test(item.title ?? "") && date > now && date.getTime() < now.getTime() + 36 * 60 * 60 * 1000 && local.getUTCHours() < 12;
+      }).sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
+      const inferredWakeAt = wakeBlock?.startsAt ?? (earlyEvent ? new Date(new Date(earlyEvent.startsAt).getTime() - (morningPrepMinutes + 30) * 60000).toISOString() : undefined);
+      const proposalId = crypto.randomUUID();
+      const sleep = createSleepSchedulePlan({ text: input.text, now, horizonDays: input.horizonDays, timezoneOffsetMinutes: input.timezoneOffsetMinutes, timeZone: input.timezone, proposalId, targetSleepMinutes, wakeAt: inferredWakeAt });
+      return NextResponse.json({ proposalId, proposalType: "recurring", proposalKind: "sleep_schedule", goalTitle: sleep.title, summary: sleep.summary, deadlineAt: horizonEnd.toISOString(), blocks: sleep.blocks, series: sleep.series, recurrenceLabel: sleep.recurrenceLabel, unscheduled: [], warnings, assumptions: sleep.assumptions, aiMode: "hybrid", calendarConnected: Boolean(connection), writeMode: connection?.write_mode ?? "confirm" });
     }
 
     if (isRecurringScheduleText(input.text)) {
