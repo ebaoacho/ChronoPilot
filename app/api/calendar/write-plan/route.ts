@@ -46,13 +46,15 @@ export async function POST(request: Request) {
       const event = prior ?? await insertGooglePlanBlock({
         accessToken, calendarId, eventId: ids.get(block.id)!, title: block.title,
         startsAt: block.startsAt, endsAt: block.endsAt, reason: block.reason,
+        location: block.location,
         proposalId: input.proposalId, blockId: block.id
       });
       const { error: upsertError } = await db!.from("external_calendar_events").upsert({
         user_id: user.id, connection_id: connection.id, external_calendar_id: calendarId,
         external_event_id: event.id, etag: event.etag, title: event.summary ?? block.title,
         starts_at: event.start?.dateTime ?? block.startsAt, ends_at: event.end?.dateTime ?? block.endsAt,
-        status: event.status ?? "confirmed", raw: { chronopilotProposalId: input.proposalId, chronopilotBlockId: block.id, htmlLink: event.htmlLink }
+        location: block.location, status: event.status ?? "confirmed",
+        raw: { chronopilotProposalId: input.proposalId, chronopilotBlockId: block.id, htmlLink: event.htmlLink }
       }, { onConflict: "user_id,external_calendar_id,external_event_id" });
       if (upsertError) throw new Error("Googleには登録しましたが、ChronoPilotへの同期記録に失敗しました。再実行しても二重登録されません");
       const metadata = { proposalId: input.proposalId, blockId: block.id, source: "ai_suggestion" };
@@ -61,8 +63,9 @@ export async function POST(request: Request) {
       if (blockReadError) throw new Error("Googleには登録しましたが、ChronoPilot計画の確認に失敗しました");
       if (!storedBlock) {
         const { error: blockInsertError } = await db!.from("plan_blocks").insert({
-          id: block.id, user_id: user.id, title: block.title, kind: "task",
-          starts_at: block.startsAt, ends_at: block.endsAt, status: "planned", fixed: true, metadata
+          id: block.id, user_id: user.id, title: block.title, kind: block.kind ?? "task",
+          starts_at: block.startsAt, ends_at: block.endsAt, status: "planned", fixed: true,
+          metadata: { ...metadata, location: block.location }
         });
         if (blockInsertError) throw new Error("Googleには登録しましたが、ChronoPilot計画への保存に失敗しました");
       }

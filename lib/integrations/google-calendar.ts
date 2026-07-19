@@ -69,6 +69,7 @@ export async function insertGooglePlanBlock(input: {
   startsAt: string;
   endsAt: string;
   reason: string;
+  location?: string;
   proposalId: string;
   blockId: string;
 }) {
@@ -80,6 +81,7 @@ export async function insertGooglePlanBlock(input: {
       id: input.eventId,
       summary: input.title,
       description: `ChronoPilot AI提案\n${input.reason}`,
+      location: input.location || undefined,
       start: { dateTime: input.startsAt },
       end: { dateTime: input.endsAt },
       extendedProperties: { private: { chronopilotProposalId: input.proposalId, chronopilotBlockId: input.blockId } }

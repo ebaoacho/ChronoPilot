@@ -132,6 +132,8 @@ export const scheduledSuggestionSchema = z.object({
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
   reason: z.string().trim().min(1).max(500),
+  kind: z.enum(["event", "task", "travel"]).optional(),
+  location: z.string().trim().max(300).optional(),
   source: z.literal("ai_suggestion")
 }).refine((value) => new Date(value.endsAt) > new Date(value.startsAt), "終了時刻を確認してください");
 
@@ -139,3 +141,12 @@ export const calendarWritePlanSchema = z.object({
   proposalId: z.string().uuid(),
   blocks: z.array(scheduledSuggestionSchema).min(1).max(30)
 });
+
+export const planBlockCreateSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  kind: z.enum(["event", "task", "travel"]).default("event"),
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime(),
+  location: z.string().trim().max(300).optional(),
+  reason: z.string().trim().max(500).optional()
+}).refine((value) => new Date(value.endsAt) > new Date(value.startsAt), "終了時刻は開始時刻より後にしてください");

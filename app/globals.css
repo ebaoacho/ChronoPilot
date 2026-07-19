@@ -78,6 +78,8 @@ button { cursor:pointer; }
 .planner-fields { display:grid; grid-template-columns:minmax(0,2fr) minmax(100px,1fr); gap:10px; }
 .planner-check { display:flex; align-items:center; gap:9px; min-height:44px; margin:5px 0 14px; }
 .planner-check input { width:20px; height:20px; }
+.natural-preview { margin-top:20px; padding-top:18px; border-top:1px solid var(--line); }
+.preview-event { padding:14px; margin-bottom:16px; border-radius:14px; background:var(--panel2); }
 .planner-result { display:grid; gap:12px; border-top:1px solid var(--line); margin-top:18px; padding-top:18px; }
 .planner-result h3 { margin:8px 0 4px; font-size:1.25rem; }
 .planner-blocks { display:grid; gap:8px; }
