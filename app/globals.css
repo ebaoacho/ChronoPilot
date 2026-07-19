@@ -68,5 +68,17 @@ button { cursor:pointer; }
 .coach-compose { display:grid; grid-template-columns:1fr auto; gap:9px; align-items:end; }
 .coach-compose textarea { min-height:54px; max-height:130px; resize:vertical; border:1px solid var(--line); background:var(--panel2); color:var(--text); border-radius:14px; padding:13px; }
 .calendar-source { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-top:5px; }
+.ai-planner { margin-bottom:14px; }
+.ai-planner h2 { display:flex; align-items:center; gap:8px; }
+.planner-fields { display:grid; grid-template-columns:minmax(0,2fr) minmax(100px,1fr); gap:10px; }
+.planner-check { display:flex; align-items:center; gap:9px; min-height:44px; margin:5px 0 14px; }
+.planner-check input { width:20px; height:20px; }
+.planner-result { display:grid; gap:12px; border-top:1px solid var(--line); margin-top:18px; padding-top:18px; }
+.planner-result h3 { margin:8px 0 4px; font-size:1.25rem; }
+.planner-blocks { display:grid; gap:8px; }
+.planner-block { display:grid; grid-template-columns:76px 1fr; gap:12px; padding:13px; border:1px solid var(--line); border-radius:14px; background:var(--panel2); }
+.planner-date { font-weight:750; color:var(--accent); }
+.planner-note,.planner-message { padding:10px 12px; border-radius:12px; background:var(--panel2); margin:0; }
+.planner-success { color:var(--good); display:flex; align-items:center; gap:6px; font-weight:700; }
 @media(min-width:900px) { .app-shell { padding:0 0 0 220px; } .nav { display:none; } .desktop-side { position:fixed; display:flex; flex-direction:column; inset:0 auto 0 0; width:220px; padding:28px 16px; border-right:1px solid var(--line); background:var(--panel); } .desktop-side button { min-height:48px; border:0; border-radius:12px; background:transparent; color:var(--muted); text-align:left; padding:0 14px; } .desktop-side button.active { color:var(--text); background:var(--panel2); font-weight:700; } .content { width:min(100%,980px); padding:34px; } .hero { min-height:400px; } .metric-grid { grid-template-columns:repeat(4,1fr); } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; animation:none!important; } }

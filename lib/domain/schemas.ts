@@ -100,3 +100,42 @@ export const onboardingSettingsSchema = z.object({
   holidayGameMinutes: z.number().int().min(0).max(720),
   engineerVision: z.string().trim().min(1).max(1000)
 });
+
+export const goalPlanningRequestSchema = z.object({
+  text: z.string().trim().min(3).max(4000),
+  deadlineAt: z.string().datetime().optional(),
+  horizonDays: z.number().int().min(1).max(60).default(14),
+  timezone: z.string().trim().min(1).max(80).default("Asia/Tokyo"),
+  timezoneOffsetMinutes: z.number().int().min(-840).max(840),
+  workdayStartHour: z.number().int().min(0).max(23).default(9),
+  workdayEndHour: z.number().int().min(1).max(24).default(22)
+}).refine((value) => value.workdayEndHour > value.workdayStartHour, "作業可能時間帯を確認してください");
+
+export const goalDecompositionSchema = z.object({
+  goalTitle: z.string().trim().min(1).max(200),
+  summary: z.string().trim().min(1).max(1000),
+  deadlineAt: z.string().datetime().optional(),
+  workUnits: z.array(z.object({
+    title: z.string().trim().min(1).max(200),
+    sessions: z.number().int().min(1).max(10),
+    minutesPerSession: z.number().int().min(15).max(120),
+    priority: z.number().int().min(1).max(4),
+    reason: z.string().trim().min(1).max(500)
+  })).min(1).max(20),
+  assumptions: z.array(z.string().trim().min(1).max(300)).max(8).default([])
+});
+
+export const scheduledSuggestionSchema = z.object({
+  id: z.string().uuid(),
+  proposalId: z.string().uuid(),
+  title: z.string().trim().min(1).max(200),
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime(),
+  reason: z.string().trim().min(1).max(500),
+  source: z.literal("ai_suggestion")
+}).refine((value) => new Date(value.endsAt) > new Date(value.startsAt), "終了時刻を確認してください");
+
+export const calendarWritePlanSchema = z.object({
+  proposalId: z.string().uuid(),
+  blocks: z.array(scheduledSuggestionSchema).min(1).max(30)
+});

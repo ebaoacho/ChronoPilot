@@ -6,6 +6,8 @@ import { AlarmClock, BarChart3, CalendarDays, Check, CirclePlus, Gamepad2, Home,
 import type { PlanBlock, TaskInput } from "@/lib/domain/types";
 import { calculateDisposableTime, calculateWakePlan, createFallbackPlan, getCurrentAndNext, rescheduleAfterDelay } from "@/lib/domain/scheduler";
 import { LifeCoachChat } from "@/components/life-coach-chat";
+import { AiSchedulePlanner } from "@/components/ai-schedule-planner";
+import type { SuggestedBlock } from "@/components/ai-schedule-planner";
 
 type Tab = "now"|"today"|"add"|"calendar"|"more";
 type LocalState = { tasks:TaskInput[]; blocks:PlanBlock[]; game:{active:boolean;startedAt?:string;plannedEnd?:string;sessions:number}; routineDone:string[]; growth:string[] };
@@ -38,7 +40,7 @@ export function Dashboard({demo,email}:{demo:boolean;email:string}) {
       {tab==="now"&&<NowView now={now} current={active.current} next={active.next} remaining={active.remainingMinutes} state={state} setState={setState} complete={completeCurrent} replan={replan} message={message} demo={demo}/>} 
       {tab==="today"&&<TodayView now={now} state={state}/>} 
       {tab==="add"&&<AddView demo={demo} setState={setState} onDone={()=>{replan();setTab("today")}} message={message}/>} 
-      {tab==="calendar"&&<CalendarView blocks={state.blocks} demo={demo}/>}
+      {tab==="calendar"&&<CalendarView blocks={state.blocks} demo={demo} onPlanAdded={(suggestions)=>setState(current=>({...current,blocks:[...current.blocks.filter(block=>!suggestions.some(item=>item.id===block.id)),...suggestions.map(item=>({id:item.id,title:item.title,kind:"task" as const,startsAt:item.startsAt,endsAt:item.endsAt,status:"planned" as const,fixed:true}))].sort((a,b)=>a.startsAt.localeCompare(b.startsAt))}))}/>}
       {tab==="more"&&<MoreView state={state} setState={setState} message={message} demo={demo}/>} 
     </main>
     <nav className="nav" aria-label="主要ナビゲーション">{tabItems.map(({id,label,icon:Icon})=><button key={id} className={`${tab===id?"active":""} ${id==="add"?"add":""}`} onClick={()=>setTab(id)} aria-label={label}><Icon size={id==="add"?26:21}/>{id!=="add"&&<span>{label}</span>}</button>)}</nav>
@@ -74,13 +76,15 @@ function AddView({demo,setState,onDone,message}:{demo:boolean;setState:React.Dis
 }
 
 type GoogleEvent={id:string;title:string;starts_at:string;ends_at:string;location?:string;external_calendar_id:string;status?:string;updated_at:string};
-function CalendarView({blocks,demo}:{blocks:PlanBlock[];demo:boolean}){
+function CalendarView({blocks,demo,onPlanAdded}:{blocks:PlanBlock[];demo:boolean;onPlanAdded:(blocks:SuggestedBlock[])=>void}){
   const [view,setView]=useState("日");const [events,setEvents]=useState<GoogleEvent[]>([]);const [connected,setConnected]=useState(false);const [lastSynced,setLastSynced]=useState<string|null>(null);const [loading,setLoading]=useState(false);const [error,setError]=useState("");
   const load=useCallback(async()=>{if(demo)return;setLoading(true);setError("");try{const start=startOfDay(new Date());const end=addMinutes(start,24*60);const response=await fetch(`/api/calendar/events?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`);const body=await response.json() as {events?:GoogleEvent[];connected?:boolean;lastSyncedAt?:string|null;error?:string};if(!response.ok)throw new Error(body.error??"取得できませんでした");setEvents(body.events??[]);setConnected(Boolean(body.connected));setLastSynced(body.lastSyncedAt??null)}catch(value){setError(value instanceof Error?value.message:"取得できませんでした")}finally{setLoading(false)}},[demo]);
   useEffect(()=>{const timer=setTimeout(()=>void load(),0);return()=>clearTimeout(timer)},[load]);
   async function sync(){setLoading(true);setError("");try{const response=await fetch("/api/calendar/sync",{method:"POST"});const body=await response.json() as {error?:string};if(!response.ok)throw new Error(body.error??"同期できませんでした");await load()}catch(value){setError(value instanceof Error?value.message:"同期できませんでした");setLoading(false)}}
+  async function registered(suggestions:SuggestedBlock[]){onPlanAdded(suggestions);await load()}
   const today=blocks.filter(block=>{const time=new Date(block.startsAt);const now=new Date();return time.toDateString()===now.toDateString()});
   return <><div className="eyebrow">Calendar</div><div className="section-title"><h1 style={{margin:0}}>カレンダー</h1><div>{["月","週","日"].map(v=><button className={`button ${view!==v?"ghost":"secondary"}`} style={{minHeight:38,padding:"0 10px"}} onClick={()=>setView(v)} key={v}>{v}</button>)}</div></div>
+    <AiSchedulePlanner connected={connected} onRegistered={registered}/>
     <section className="card"><div className="section-title" style={{marginTop:0}}><div><h2>今日のGoogle Calendar</h2><p className="muted" style={{marginBottom:0}}>{connected?`${events.length}件 · ${lastSynced?`最終同期 ${format(new Date(lastSynced),"M/d H:mm")}`:"未同期"}`:"まだ接続されていません"}</p></div>{connected?<button className="button secondary" disabled={loading} onClick={()=>void sync()}><RefreshCw size={16}/>{loading?"同期中":"同期"}</button>:<a className="button secondary" href={demo?"#":"/api/calendar/connect"}>接続</a>}</div>{error&&<p style={{color:"var(--warn)"}}>{error}</p>}{events.length===0?<p className="muted">{loading?"予定を読み込んでいます…":"今日登録されているGoogle予定はありません。"}</p>:<div className="timeline">{events.map(event=><div className="timeline-item" key={event.id}><small>{format(new Date(event.starts_at),"H:mm")}</small><span className="timeline-line active"/><div><strong>{event.title}</strong><div className="calendar-source"><span className="pill">Google</span><span className="muted">{format(new Date(event.starts_at),"H:mm")}–{format(new Date(event.ends_at),"H:mm")}</span>{event.location&&<span className="muted">📍 {event.location}</span>}</div><small className="muted">登録先: {event.external_calendar_id}</small></div></div>)}</div>}</section>
     <section className="card" style={{marginTop:14}}><h2>ChronoPilotの今日の計画</h2><p className="muted">{view}表示 · AI提案とルールベース計画を含みます</p><div className="timeline">{today.map(b=><div className="timeline-item" key={b.id}><small>{format(new Date(b.startsAt),"H:mm")}</small><span className="timeline-line"/><div><strong>{b.title}</strong><div className="calendar-source"><span className="pill">ChronoPilot</span><span className="pill">{kindName(b.kind)}</span><span className="muted">{format(new Date(b.startsAt),"H:mm")}–{format(new Date(b.endsAt),"H:mm")}</span></div></div></div>)}</div></section></>}
 

@@ -33,7 +33,9 @@ Calendarのrefresh tokenはAES-256-GCMで暗号化して `calendar_connections.e
 
 ## 書き込みモード
 
-DBは `confirm`, `today`, `all`, `readonly` を保持できます。現バージョンで完成しているのはOAuth接続、読み取り同期、変更・削除検知用データ、画面表示です。ChronoPilotの計画をGoogleへ書き戻す操作はまだ有効化していません。意図せず大量登録しないため、書き込み実装時も `confirm` を初期値にします。
+DBは `confirm`, `today`, `all`, `readonly` を保持できます。AI予定提案は、目標を作業へ分解した後、最新のGoogle予定とChronoPilot計画の空き時間へ決定論的に配置します。既定の `confirm` ではプレビュー後に明示的な登録操作が必要です。「提案後、そのまま登録」を利用者が選んだ場合は、同じ操作内で登録まで実行します。`readonly` では書き込みません。
+
+登録直前にGoogle Calendarを再取得し、重複が見つかった場合は登録を止めて再提案を求めます。イベントIDはユーザー・提案・ブロックから決定論的に生成するため、通信再試行でも二重登録しません。登録イベントにはChronoPilot提案IDをGoogleのprivate extended propertiesとDBの`raw`へ保存します。
 
 ## 必要なGoogle設定
 

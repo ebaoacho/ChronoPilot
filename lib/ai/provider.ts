@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import { z } from "zod";
-import { dailyPlanResultSchema, lifeCoachResultSchema, naturalAddResultSchema } from "@/lib/domain/schemas";
+import { dailyPlanResultSchema, goalDecompositionSchema, lifeCoachResultSchema, naturalAddResultSchema } from "@/lib/domain/schemas";
 import type { LifeCoachInput, LifeCoachResult } from "@/lib/domain/life-coach";
+import type { GoalDecomposition } from "@/lib/domain/goal-planner";
 
 export type DailyPlanResult = z.infer<typeof dailyPlanResultSchema>;
 export type NaturalAddResult = z.infer<typeof naturalAddResultSchema>;
@@ -16,6 +17,7 @@ export interface AiPlanningProvider {
   generateGrowthPlan(input: unknown): Promise<unknown>;
   generateLifeReview(input: unknown): Promise<unknown>;
   chatLifeCoach(input: LifeCoachInput): Promise<LifeCoachResult>;
+  decomposeGoal(input: { text: string; now: string; deadlineAt?: string; timezone: string }): Promise<GoalDecomposition>;
 }
 
 async function structured<T>(schema: z.ZodType<T>, system: string, input: unknown): Promise<T> {
@@ -50,5 +52,12 @@ Answer in natural Japanese, empathetically and without guilt or scolding. Respec
 Use only the supplied timestamps, computed free minutes, route result, tasks, and blocks. Never invent travel time, calendar events, or arithmetic.
 For smoking, acknowledge the feeling without encouraging tobacco; separate scheduling impact from health judgment.
 Give a clear verdict and practical options. Mention uncertainty in assumptions.`, input);
+  }
+  decomposeGoal(input: { text: string; now: string; deadlineAt?: string; timezone: string }) {
+    return structured(goalDecompositionSchema, `Break a general life goal or upcoming event into concrete preparation work sessions.
+Do not choose session timestamps or calculate free time. The application schedules sessions deterministically.
+Use the explicit deadline when supplied. If the text contains an unambiguous date, return it as deadlineAt; otherwise omit it.
+Prefer focused sessions of 25-50 minutes. Repeated practice may use multiple sessions. Answer in Japanese.
+Do not invent organization names, appointments, requirements, or facts not present in the request.`, input);
   }
 }
