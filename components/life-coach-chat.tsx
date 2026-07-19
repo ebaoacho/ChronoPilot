@@ -6,6 +6,7 @@ import type { PlanBlock, TaskInput } from "@/lib/domain/types";
 import type { LifeCoachResult } from "@/lib/domain/life-coach";
 import type { z } from "zod";
 import type { routeEstimateSchema } from "@/lib/domain/schemas";
+import { selectCoachBlocks } from "@/lib/domain/coach-context";
 
 type Message = { role: "user" | "assistant"; content: string };
 type RouteEstimate = z.infer<typeof routeEstimateSchema>;
@@ -74,12 +75,14 @@ export function LifeCoachChat({ blocks, tasks, freeMinutes }: { blocks: PlanBloc
     setMessages(nextMessages);
     try {
       const route = await getRoute();
+      const now = new Date().toISOString();
+      const relevantBlocks = selectCoachBlocks(blocks, now);
       const response = await fetch("/api/ai/chat", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          messages: nextMessages.slice(-12), now: new Date().toISOString(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo",
-          blocks: blocks.map(({ title, kind, startsAt, endsAt, fixed }) => ({ title, kind, startsAt, endsAt, fixed })),
-          tasks: tasks.map(({ title, estimateMinutes, priority, required }) => ({ title, estimateMinutes, priority, required })),
+          messages: nextMessages.slice(-12), now, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Tokyo",
+          blocks: relevantBlocks.map(({ title, kind, startsAt, endsAt, fixed }) => ({ title, kind, startsAt, endsAt, fixed })),
+          tasks: tasks.slice(0,80).map(({ title, estimateMinutes, priority, required }) => ({ title, estimateMinutes, priority, required })),
           freeMinutes, route
         })
       });
