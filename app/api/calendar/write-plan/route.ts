@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import { calendarWritePlanSchema } from "@/lib/domain/schemas";
-import { getGoogleAccessToken, getGoogleEvent, googleEventId, insertGooglePlanBlock, listGoogleBusy, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
+import { getGoogleAccessToken, getGoogleEvent, googleEventId, insertGooglePlanBlock, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
 import { createSupabaseServer, requireUser } from "@/lib/supabase/server";
-
-function overlap(a: { startsAt: string; endsAt: string }, b: { startsAt: string; endsAt: string }) {
-  return new Date(a.startsAt) < new Date(b.endsAt) && new Date(b.startsAt) < new Date(a.endsAt);
-}
 
 export async function POST(request: Request) {
   try {
@@ -13,7 +9,6 @@ export async function POST(request: Request) {
     if (user.demo) throw new Error("Google Calendar接続が必要です");
     const input = calendarWritePlanSchema.parse(await request.json());
     if (input.blocks.some((block) => block.proposalId !== input.proposalId)) throw new Error("提案IDが一致しません");
-    if (input.blocks.some((block, index) => input.blocks.some((other, otherIndex) => index !== otherIndex && overlap(block, other)))) throw new Error("提案内の予定が重複しています。再提案してください");
     const db = await createSupabaseServer();
     const { data, error } = await db!.from("calendar_connections")
       .select("id,encrypted_refresh_token,selected_calendar_ids,write_mode")
@@ -27,18 +22,6 @@ export async function POST(request: Request) {
     const ids = new Map(input.blocks.map((block) => [block.id, googleEventId(user.id, input.proposalId, block.id)]));
     const existing = new Map<string, Awaited<ReturnType<typeof getGoogleEvent>>>();
     for (const block of input.blocks) existing.set(block.id, await getGoogleEvent(accessToken, calendarId, ids.get(block.id)!));
-
-    const pending = input.blocks.filter((block) => !existing.get(block.id));
-    if (pending.length) {
-      const start = pending.reduce((value, block) => block.startsAt < value ? block.startsAt : value, pending[0].startsAt);
-      const end = pending.reduce((value, block) => block.endsAt > value ? block.endsAt : value, pending[0].endsAt);
-      const calendarIds = Array.from(new Set([...(connection.selected_calendar_ids ?? []), calendarId]));
-      const busy = await listGoogleBusy({ accessToken, calendarIds, start, end });
-      const conflicts = pending.flatMap((block) => busy
-        .filter((event) => event.proposalId !== input.proposalId && overlap(block, event))
-        .map((event) => ({ proposed: block.title, existing: event.title, startsAt: event.startsAt, endsAt: event.endsAt })));
-      if (conflicts.length) return NextResponse.json({ error: "登録直前に予定の重複が見つかりました。再提案してください", conflicts }, { status: 409 });
-    }
 
     const registered: Array<{ id: string; title: string; htmlLink?: string; alreadyExisted: boolean }> = [];
     for (const block of input.blocks) {
@@ -71,7 +54,7 @@ export async function POST(request: Request) {
       }
       registered.push({ id: event.id, title: event.summary ?? block.title, htmlLink: event.htmlLink, alreadyExisted: Boolean(prior) });
     }
-    return NextResponse.json({ registered, calendarId, proposalId: input.proposalId });
+    return NextResponse.json({ registered, calendarId, proposalId: input.proposalId, overlapPolicy: "allow" });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Google Calendarへ登録できませんでした" }, { status: 400 });
   }

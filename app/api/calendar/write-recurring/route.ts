@@ -1,11 +1,7 @@
 import { NextResponse } from "next/server";
 import { calendarWriteRecurringSchema } from "@/lib/domain/schemas";
-import { getGoogleAccessToken, getGoogleEvent, googleEventId, insertGoogleRecurringBlock, listGoogleBusy, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
+import { getGoogleAccessToken, getGoogleEvent, googleEventId, insertGoogleRecurringBlock, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
 import { createSupabaseServer, requireUser } from "@/lib/supabase/server";
-
-function overlap(a: { startsAt: string; endsAt: string }, b: { startsAt: string; endsAt: string }) {
-  return new Date(a.startsAt) < new Date(b.endsAt) && new Date(b.startsAt) < new Date(a.endsAt);
-}
 
 export async function POST(request: Request) {
   try {
@@ -19,12 +15,6 @@ export async function POST(request: Request) {
     if (connection.write_mode === "readonly") return NextResponse.json({ error: "Calendar設定が読み取り専用です" }, { status: 403 });
     const accessToken = await getGoogleAccessToken(connection);
     const calendarId = "primary";
-    const start = input.blocks.reduce((value, block) => block.startsAt < value ? block.startsAt : value, input.blocks[0].startsAt);
-    const end = input.blocks.reduce((value, block) => block.endsAt > value ? block.endsAt : value, input.blocks[0].endsAt);
-    const busy = await listGoogleBusy({ accessToken, calendarIds: Array.from(new Set([...(connection.selected_calendar_ids ?? []), calendarId])), start, end });
-    const conflicts = input.blocks.flatMap((block) => busy.filter((event) => event.proposalId !== input.proposalId && overlap(block, event)).map((event) => ({ proposed: block.title, existing: event.title, startsAt: block.startsAt })));
-    if (conflicts.length) return NextResponse.json({ error: `${conflicts.length}件の予定が既存予定と重なっています。先に調整してください`, conflicts }, { status: 409 });
-
     const registered: Array<{ id: string; title: string; alreadyExisted: boolean }> = [];
     for (const series of input.series) {
       const eventId = googleEventId(user.id, input.proposalId, series.id);
@@ -41,7 +31,7 @@ export async function POST(request: Request) {
     const rows = input.blocks.map((block) => ({ id: block.id, user_id: user.id, title: block.title, kind: block.kind ?? "event", starts_at: block.startsAt, ends_at: block.endsAt, status: "planned", fixed: true, metadata: { proposalId: input.proposalId, source: "recurring_schedule", location: block.location } }));
     const { error: blocksError } = await db!.from("plan_blocks").upsert(rows, { onConflict: "id" });
     if (blocksError) throw new Error("Googleには登録しましたが、ChronoPilot計画の保存に失敗しました");
-    return NextResponse.json({ registered, proposalId: input.proposalId, occurrences: input.blocks.length });
+    return NextResponse.json({ registered, proposalId: input.proposalId, occurrences: input.blocks.length, overlapPolicy: "allow" });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "定期予定を登録できませんでした" }, { status: 400 });
   }

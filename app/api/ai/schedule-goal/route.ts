@@ -41,7 +41,7 @@ export async function POST(request: Request) {
       const proposalId = crypto.randomUUID();
       const recurring = createRecurringPlan({ text: input.text, now, horizonDays: input.horizonDays, timezoneOffsetMinutes: input.timezoneOffsetMinutes, timeZone: input.timezone, proposalId });
       const conflicts = recurring.blocks.filter((block) => busy.some((item) => new Date(block.startsAt) < new Date(item.endsAt) && new Date(item.startsAt) < new Date(block.endsAt)));
-      if (conflicts.length) warnings.push(`${conflicts.length}件が既存予定と重なっています。登録前に期間または予定を調整してください。`);
+      if (conflicts.length) warnings.push(`${conflicts.length}件が既存予定と重なっています。設定に従い、すべて同じ時間帯へ重ねて登録できます。`);
       return NextResponse.json({
         proposalId, proposalType: "recurring", goalTitle: recurring.title, summary: recurring.summary,
         deadlineAt: horizonEnd.toISOString(), blocks: recurring.blocks, series: recurring.series,

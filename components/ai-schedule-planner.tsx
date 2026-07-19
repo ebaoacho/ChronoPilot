@@ -61,7 +61,7 @@ export function AiSchedulePlanner({ connected, onRegistered }: { connected: bool
   return <section className="card ai-planner">
     <div className="eyebrow">AI Schedule</div>
     <h2><Sparkles size={20}/> 目標から予定を自動提案</h2>
-    <p className="muted">面接対策、試験勉強、提出準備などを作業へ分解し、既存予定と重ならない時間へ配置します。</p>
+    <p className="muted">面接対策、試験勉強、提出準備などを作業へ分解します。時刻指定が重なっている場合も、予定を失わず同じ時間帯へすべて登録します。</p>
     <div className="field"><label>やりたいこと・確定した予定</label><textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="例：7月30日に面接が決まった。企業研究、想定質問の整理、模擬面接を準備したい"/></div>
     <div className="planner-fields"><div className="field"><label>締切・本番日時（任意）</label><input type="datetime-local" value={deadline} onChange={(event) => setDeadline(event.target.value)}/></div><div className="field"><label>提案する期間</label><select value={horizon} onChange={(event) => setHorizon(Number(event.target.value))}><option value="7">7日</option><option value="14">14日</option><option value="30">30日</option><option value="60">60日</option></select></div></div>
     <label className="planner-check"><input type="checkbox" checked={autoRegister} disabled={!connected} onChange={(event) => setAutoRegister(event.target.checked)}/> 提案後、そのままGoogle Calendarへ登録する</label>
@@ -73,7 +73,7 @@ export function AiSchedulePlanner({ connected, onRegistered }: { connected: bool
       {proposal.blocks.length ? <><div className="planner-blocks">{proposal.blocks.slice(0,12).map((block) => <article key={block.id} className="planner-block"><div className="planner-date">{format(new Date(block.startsAt), "M/d (E)", { locale: ja })}</div><div><strong>{block.title}</strong><div>{format(new Date(block.startsAt), "H:mm")}–{format(new Date(block.endsAt), "H:mm")}</div><small className="muted">{block.reason}</small></div></article>)}</div>{proposal.blocks.length>12&&<p className="muted">ほか {proposal.blocks.length-12}件 · Google Calendarには期間内のすべてを定期予定として登録します。</p>}</> : <p>配置できる時間が見つかりませんでした。</p>}
       {[...proposal.warnings, ...proposal.assumptions].map((warning) => <p className="muted planner-note" key={warning}>※ {warning}</p>)}
       {proposal.unscheduled.map((item) => <p className="planner-note" key={`${item.title}-${item.minutes}`}>未配置：{item.title}（{item.minutes}分）</p>)}
-      {proposal.calendarConnected && proposal.writeMode !== "readonly" && proposal.blocks.length > 0 && !autoRegister && <button className="button" disabled={registering} onClick={() => void registerPlan(proposal)}><CalendarCheck size={18}/>{registering ? "重複を再確認中…" : "この提案をGoogle Calendarに登録"}</button>}
+      {proposal.calendarConnected && proposal.writeMode !== "readonly" && proposal.blocks.length > 0 && !autoRegister && <button className="button" disabled={registering} onClick={() => void registerPlan(proposal)}><CalendarCheck size={18}/>{registering ? "登録中…" : "この提案をGoogle Calendarに登録"}</button>}
       {proposal.writeMode === "readonly" && <p className="planner-note">Calendarが読み取り専用のため、提案だけ表示しています。</p>}
       {message.includes("登録しました") && <p className="planner-success"><Check size={17}/> 登録済み</p>}
     </div>}
