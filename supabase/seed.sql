@@ -1,0 +1,2 @@
+-- Real user-owned starter data is created by bootstrap_user after the first Google login.
+-- No shared demo account or credentials are seeded.

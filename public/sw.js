@@ -1,0 +1,7 @@
+const CACHE="chronopilot-v1";const CORE=["/","/offline.html","/manifest.webmanifest","/icons/icon-192.svg","/icons/icon-512.svg"];
+self.addEventListener("install",e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE))));
+self.addEventListener("activate",e=>e.waitUntil(Promise.all([caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))),self.clients.claim()])));
+self.addEventListener("message",e=>{if(e.data?.type==="SKIP_WAITING")self.skipWaiting()});
+self.addEventListener("fetch",e=>{const r=e.request;if(r.method!=="GET")return;if(new URL(r.url).origin!==location.origin)return;e.respondWith(fetch(r).then(res=>{if(res.ok){const copy=res.clone();caches.open(CACHE).then(c=>c.put(r,copy))}return res}).catch(async()=>await caches.match(r)||await caches.match("/offline.html")))});
+self.addEventListener("push",e=>{let data={title:"ChronoPilot",body:"次の行動を確認しましょう",url:"/"};try{data={...data,...e.data.json()}}catch{}e.waitUntil(self.registration.showNotification(data.title,{body:data.body,icon:"/icons/icon-192.svg",badge:"/icons/icon-192.svg",data:{url:data.url},tag:data.tag||"chronopilot"}))});
+self.addEventListener("notificationclick",e=>{e.notification.close();e.waitUntil(clients.matchAll({type:"window",includeUncontrolled:true}).then(list=>{const found=list.find(c=>c.url.includes(location.origin));return found?found.focus():clients.openWindow(e.notification.data?.url||"/")}))});
