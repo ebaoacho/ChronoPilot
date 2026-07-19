@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { decryptToken } from "@/lib/security/crypto";
 
+export const GOOGLE_CALENDAR_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+] as const;
+
 export type GoogleCalendarConnection = {
   id: string;
   encrypted_refresh_token: string;

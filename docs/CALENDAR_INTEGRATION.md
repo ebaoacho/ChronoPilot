@@ -2,7 +2,7 @@
 
 ## 認証の分離
 
-Supabase AuthのGoogleログインはアプリへの本人確認です。Google Calendar連携は別のOAuth同意で `calendar` scopeを取得します。ログインしただけでカレンダー権限を要求しません。
+Supabase AuthのGoogleログインはアプリへの本人確認です。Google Calendar連携は別のOAuth同意で、予定の閲覧・登録用`calendar.events`とカレンダー一覧取得用`calendar.calendarlist.readonly`だけを取得します。ログインしただけでカレンダー権限を要求しません。
 
 Calendarのrefresh tokenはAES-256-GCMで暗号化して `calendar_connections.encrypted_refresh_token` に保存します。ブラウザのLocal Storageへ保存せず、access tokenもAPI Route内だけで使用します。
 

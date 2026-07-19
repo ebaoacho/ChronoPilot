@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scheduleGoalWork, type GoalDecomposition } from "@/lib/domain/goal-planner";
-import { googleEventId } from "@/lib/integrations/google-calendar";
+import { GOOGLE_CALENDAR_SCOPES, googleEventId } from "@/lib/integrations/google-calendar";
 
 const proposalId = "f90f6fa5-3ef8-4eed-9c2d-3db0203bc513";
 const base: GoalDecomposition = {
@@ -62,5 +62,12 @@ describe("Google Calendar idempotency", () => {
     const first = googleEventId("user", proposalId, "block");
     expect(googleEventId("user", proposalId, "block")).toBe(first);
     expect(first).toMatch(/^[a-f0-9]{40}$/);
+  });
+  it("requests only event and read-only calendar-list access", () => {
+    expect(GOOGLE_CALENDAR_SCOPES).toEqual([
+      "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+    ]);
+    expect(GOOGLE_CALENDAR_SCOPES).not.toContain("https://www.googleapis.com/auth/calendar" as never);
   });
 });

@@ -1,2 +1,34 @@
-import { NextResponse } from "next/server";import { randomBytes } from "node:crypto";import { requireUser } from "@/lib/supabase/server";
-export async function GET(request:Request){try{await requireUser();if(!process.env.GOOGLE_CLIENT_ID||!process.env.GOOGLE_CLIENT_SECRET)throw new Error("Google Calendar設定がありません");const origin=new URL(request.url).origin;const state=randomBytes(24).toString("base64url");const params=new URLSearchParams({client_id:process.env.GOOGLE_CLIENT_ID,redirect_uri:`${origin}/api/calendar/callback`,response_type:"code",scope:"https://www.googleapis.com/auth/calendar",access_type:"offline",prompt:"consent",state,include_granted_scopes:"true"});const response=NextResponse.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);response.cookies.set("calendar_oauth_state",state,{httpOnly:true,secure:process.env.NODE_ENV==="production",sameSite:"lax",path:"/api/calendar/callback",maxAge:600});return response}catch(error){return NextResponse.json({error:error instanceof Error?error.message:"接続できません"},{status:400})}}
+import { randomBytes } from "node:crypto";
+import { NextResponse } from "next/server";
+import { GOOGLE_CALENDAR_SCOPES } from "@/lib/integrations/google-calendar";
+import { requireUser } from "@/lib/supabase/server";
+
+export async function GET(request: Request) {
+  try {
+    await requireUser();
+    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) throw new Error("Google Calendar設定がありません");
+    const origin = new URL(request.url).origin;
+    const state = randomBytes(24).toString("base64url");
+    const params = new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      redirect_uri: `${origin}/api/calendar/callback`,
+      response_type: "code",
+      scope: GOOGLE_CALENDAR_SCOPES.join(" "),
+      access_type: "offline",
+      prompt: "consent",
+      state,
+      include_granted_scopes: "true"
+    });
+    const response = NextResponse.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+    response.cookies.set("calendar_oauth_state", state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/api/calendar/callback",
+      maxAge: 600
+    });
+    return response;
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "接続できません" }, { status: 400 });
+  }
+}
