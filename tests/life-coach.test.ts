@@ -42,6 +42,24 @@ describe("life coach deterministic advice", () => {
     expect(result.intent).toBe("wellbeing");
     expect(result.reply).toContain("予定面");
   });
+
+  it("formats calendar times in the user's timezone", () => {
+    const value = input("明日のことを相談したい");
+    value.now = "2026-07-19T14:40:00.000Z";
+    value.blocks = [{ title: "就寝", kind: "sleep", startsAt: "2026-07-19T14:58:00.000Z", endsAt: "2026-07-19T21:58:00.000Z", fixed: true }];
+    const result = buildFallbackCoachAnswer(value);
+    expect(result.reply).toContain("23:58");
+    expect(result.reply).not.toContain("14:58");
+  });
+
+  it("gives a concrete bath window before tomorrow's sleep", () => {
+    const value = input("ゲームしていてお風呂に入れませんでした。明日は何時に入るべき？");
+    value.now = "2026-07-19T14:40:00.000Z";
+    value.blocks = [{ title: "睡眠", kind: "sleep", startsAt: "2026-07-20T15:00:00.000Z", endsAt: "2026-07-20T22:00:00.000Z", fixed: true }];
+    const result = buildFallbackCoachAnswer(value);
+    expect(result.reply).toContain("23:00〜23:30");
+    expect(result.verdict).toBe("yes_with_limit");
+  });
 });
 
 describe("Google Routes duration", () => {

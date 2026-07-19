@@ -5,6 +5,16 @@ import { lifeCoachInputSchema, lifeCoachResultSchema } from "@/lib/domain/schema
 import { requireUser } from "@/lib/supabase/server";
 import { selectCoachBlocks } from "@/lib/domain/coach-context";
 
+function classifyAiIssue(error: unknown) {
+  const status = typeof error === "object" && error && "status" in error ? Number(error.status) : undefined;
+  if (status === 401) return "authentication" as const;
+  if (status === 403) return "permission" as const;
+  if (status === 404) return "model" as const;
+  if (status === 429) return "quota_or_rate_limit" as const;
+  if (status && status >= 500) return "provider_unavailable" as const;
+  return "invalid_response" as const;
+}
+
 export async function POST(request: Request) {
   try {
     await requireUser();
@@ -17,28 +27,35 @@ export async function POST(request: Request) {
     const latest = [...input.messages].reverse().find((message) => message.role === "user")?.content ?? "";
     const requiresRealRoute = /(外出|行かな|行きたい|行く|向かう|まで.*(?:何分|時間)|移動|到着|出発)/.test(latest) && !input.route;
 
-    if (!process.env.OPENAI_API_KEY || requiresRealRoute) {
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json({ ...computed, aiMode: "fallback", aiIssue: "authentication" });
+    }
+    if (requiresRealRoute) {
       return NextResponse.json({ ...computed, aiMode: "fallback" });
     }
 
     try {
       const result = lifeCoachResultSchema.parse(await new OpenAiPlanningProvider().chatLifeCoach({
         ...input,
-        messages: [...input.messages, {
-          role: "assistant" as const,
-          content: `決定論的な判定（この事実を変更しない）: ${JSON.stringify(computed)}`
-        }]
+        deterministicContext: computed
       }));
+      const preserveComputedDecision = computed.verdict !== "need_more_info";
       return NextResponse.json({
         ...result,
-        verdict: computed.verdict,
-        estimatedMinutes: computed.estimatedMinutes,
-        impacts: computed.impacts,
+        verdict: preserveComputedDecision ? computed.verdict : result.verdict,
+        estimatedMinutes: preserveComputedDecision ? computed.estimatedMinutes : result.estimatedMinutes,
+        impacts: preserveComputedDecision ? computed.impacts : result.impacts,
         assumptions: Array.from(new Set([...computed.assumptions, ...result.assumptions])),
         aiMode: "openai"
       });
-    } catch {
-      return NextResponse.json({ ...computed, aiMode: "fallback" });
+    } catch (error) {
+      const aiIssue = classifyAiIssue(error);
+      console.error("AI coach fallback", {
+        issue: aiIssue,
+        status: typeof error === "object" && error && "status" in error ? error.status : undefined,
+        name: error instanceof Error ? error.name : "UnknownError"
+      });
+      return NextResponse.json({ ...computed, aiMode: "fallback", aiIssue });
     }
   } catch {
     return NextResponse.json({ error: "相談内容を処理できませんでした。画面を更新して、もう一度お試しください。" }, { status: 400 });

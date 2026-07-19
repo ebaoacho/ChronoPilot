@@ -1,5 +1,3 @@
-import { format } from "date-fns";
-import { ja } from "date-fns/locale";
 import type { z } from "zod";
 import { lifeCoachInputSchema, lifeCoachResultSchema } from "@/lib/domain/schemas";
 
@@ -26,15 +24,22 @@ function minutesUntil(iso: string, now: string) {
   return Math.max(0, Math.floor((new Date(iso).getTime() - new Date(now).getTime()) / 60000));
 }
 
+function formatTime(iso: string, timezone: string) {
+  return new Intl.DateTimeFormat("ja-JP", {
+    hour: "2-digit", minute: "2-digit", hour12: false, timeZone: timezone
+  }).format(new Date(iso));
+}
+
 export function buildFallbackCoachAnswer(input: LifeCoachInput): LifeCoachResult {
   const text = latestUserText(input);
   const upcoming = nextBlock(input);
   const available = upcoming ? minutesUntil(upcoming.startsAt, input.now) : (input.freeMinutes ?? 60);
   const upcomingText = upcoming
-    ? `${format(new Date(upcoming.startsAt), "H:mm", { locale: ja })}から「${upcoming.title}」`
+    ? `${formatTime(upcoming.startsAt, input.timezone)}から「${upcoming.title}」`
     : "この後の固定予定は見つかっていません";
   const isTravel = /(外出|行かな|行きたい|行く|向かう|まで.*(?:何分|時間)|移動|到着|出発)/.test(text);
   const isSmoking = /(タバコ|たばこ|煙草|吸いた)/.test(text);
+  const isBath = /(風呂|入浴|シャワー)/.test(text);
   const isPermission = /(していい|やっていい|できる|始めていい|遊んでいい)/.test(text);
 
   if (isTravel) {
@@ -52,7 +57,7 @@ export function buildFallbackCoachAnswer(input: LifeCoachInput): LifeCoachResult
       reply: `${input.route.destination}までは約${input.route.durationMinutes}分です。${upcoming ? `次の予定までの余裕は約${Math.max(0, buffer)}分です。` : "この後の予定との衝突は見つかりませんでした。"}`,
       intent: "travel", verdict: canGo ? "yes" : "not_now", confidence: "high",
       estimatedMinutes: input.route.durationMinutes,
-      impacts: upcoming ? [{ label: upcoming.title, before: format(new Date(upcoming.startsAt), "H:mm"), after: buffer >= 0 ? `余裕 ${buffer}分` : `${Math.abs(buffer)}分遅れる見込み`, severity: canGo ? "info" : "warning" }] : [],
+      impacts: upcoming ? [{ label: upcoming.title, before: formatTime(upcoming.startsAt, input.timezone), after: buffer >= 0 ? `余裕 ${buffer}分` : `${Math.abs(buffer)}分遅れる見込み`, severity: canGo ? "info" : "warning" }] : [],
       options: canGo ? [{ label: "出発する", description: "10分以上の余裕を残せます。", recommended: true }] : [{ label: "予定を調整する", description: "睡眠を削らず、次の予定か外出時刻を調整します。", recommended: true }],
       questions: [], assumptions: [`経路サービスの${input.route.mode}による所要時間を使用しています。`]
     };
@@ -72,6 +77,31 @@ export function buildFallbackCoachAnswer(input: LifeCoachInput): LifeCoachResult
         ? [{ label: `${minutes}分で戻る`, description: "終了時刻を決めて短い休憩として扱います。", recommended: true }, { label: "別の休憩にする", description: "水分補給や短い散歩に置き換えます。", recommended: false }]
         : [{ label: "予定を先に始める", description: "最初の区切りで休憩を再検討します。", recommended: true }],
       questions: [], assumptions: [`休憩を${minutes}分として計算しました。`]
+    };
+  }
+
+  if (isBath) {
+    const now = new Date(input.now).getTime();
+    const minimumStart = /明日/.test(text) ? now + 8 * 60 * 60 * 1000 : now;
+    const sleep = input.blocks
+      .filter((block) => (block.kind === "sleep" || /睡眠|就寝/.test(block.title)) && new Date(block.startsAt).getTime() > minimumStart)
+      .sort((left, right) => left.startsAt.localeCompare(right.startsAt))[0];
+    const bathMinutes = requestedMinutes(text, 30);
+    if (sleep) {
+      const bathEndsAt = new Date(new Date(sleep.startsAt).getTime() - 30 * 60000);
+      const bathStartsAt = new Date(bathEndsAt.getTime() - bathMinutes * 60000);
+      return {
+        reply: `明日の就寝予定が${formatTime(sleep.startsAt, input.timezone)}なので、${formatTime(bathStartsAt.toISOString(), input.timezone)}〜${formatTime(bathEndsAt.toISOString(), input.timezone)}に入る案がよさそうです。就寝前に30分の余裕を残します。明日の予定が変われば、その時点で再計画できます。`,
+        intent: "wellbeing", verdict: "yes_with_limit", confidence: "medium", estimatedMinutes: bathMinutes,
+        impacts: [{ label: "就寝", before: formatTime(sleep.startsAt, input.timezone), after: "変更なし", severity: "info" }],
+        options: [{ label: `${formatTime(bathStartsAt.toISOString(), input.timezone)}に入浴`, description: `${bathMinutes}分で終え、就寝前の余裕を確保します。`, recommended: true }],
+        questions: [], assumptions: [`入浴時間を${bathMinutes}分、就寝前の余裕を30分として計算しました。`]
+      };
+    }
+    return {
+      reply: "明日の就寝予定がまだ見つからないため、入浴時刻を断定できません。希望する就寝時刻が分かれば、入浴時間と就寝前の余裕から逆算します。",
+      intent: "wellbeing", verdict: "need_more_info", confidence: "medium", impacts: [], options: [],
+      questions: ["明日は何時に寝たいですか？"], assumptions: [`入浴時間を${bathMinutes}分として仮定します。`]
     };
   }
 

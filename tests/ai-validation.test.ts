@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { calendarWritePlanSchema, dailyPlanResultSchema, naturalAddResultSchema } from "@/lib/domain/schemas";
+import { zodResponseFormat } from "openai/helpers/zod";
+import { calendarWritePlanSchema, dailyPlanResultSchema, lifeCoachStructuredResultSchema, naturalAddResultSchema } from "@/lib/domain/schemas";
 
 describe("AI response validation", () => {
+  it("builds a strict structured-output schema for the life coach", () => {
+    const format = zodResponseFormat(lifeCoachStructuredResultSchema, "chronopilot_result");
+    expect(format.type).toBe("json_schema");
+  });
   it("rejects inverted time blocks", () => {
     expect(() => dailyPlanResultSchema.parse({ summary: "x", blocks: [{ title: "bad", kind: "task", startsAt: "2026-01-01T11:00:00.000Z", endsAt: "2026-01-01T10:00:00.000Z" }], warnings: [] })).toThrow();
   });

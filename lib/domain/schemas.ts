@@ -166,6 +166,29 @@ export const morningRoutineSuggestionSchema = z.object({
   assumptions: z.array(z.string().trim().min(1).max(300)).max(6).default([])
 });
 
+// OpenAI strict structured output requires every property to be present.
+// Nullable fields are normalized to app-facing optional fields after parsing.
+export const lifeCoachStructuredResultSchema = z.object({
+  reply: z.string().trim().min(1).max(4000),
+  intent: z.enum(["permission", "travel", "replan", "vent", "wellbeing", "general"]),
+  verdict: z.enum(["yes", "yes_with_limit", "not_now", "need_more_info"]),
+  confidence: z.enum(["high", "medium", "low"]),
+  estimatedMinutes: z.number().int().nonnegative().nullable(),
+  impacts: z.array(z.object({
+    label: z.string().trim().min(1).max(200),
+    before: z.string().trim().max(100).nullable(),
+    after: z.string().trim().max(100).nullable(),
+    severity: z.enum(["info", "warning"])
+  })).max(8),
+  options: z.array(z.object({
+    label: z.string().trim().min(1).max(100),
+    description: z.string().trim().min(1).max(500),
+    recommended: z.boolean()
+  })).max(6),
+  questions: z.array(z.string().trim().min(1).max(300)).max(4),
+  assumptions: z.array(z.string().trim().min(1).max(300)).max(6)
+});
+
 export const planBlockCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
   kind: z.enum(["event", "task", "travel"]).default("event"),

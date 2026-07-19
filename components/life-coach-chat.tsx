@@ -10,7 +10,16 @@ import { selectCoachBlocks } from "@/lib/domain/coach-context";
 
 type Message = { role: "user" | "assistant"; content: string };
 type RouteEstimate = z.infer<typeof routeEstimateSchema>;
-type CoachResponse = LifeCoachResult & { aiMode: "openai" | "fallback" };
+type CoachResponse = LifeCoachResult & { aiMode: "openai" | "fallback"; aiIssue?: "authentication" | "permission" | "model" | "quota_or_rate_limit" | "provider_unavailable" | "invalid_response" };
+
+const aiIssueText: Record<NonNullable<CoachResponse["aiIssue"]>, string> = {
+  authentication: "AI APIキーを確認してください",
+  permission: "AI APIの利用権限を確認してください",
+  model: "OPENAI_MODELのモデル名を確認してください",
+  quota_or_rate_limit: "AI APIの残高または利用上限を確認してください",
+  provider_unavailable: "AIサービスが一時的に応答していません",
+  invalid_response: "AI応答を検証できなかったため再試行してください"
+};
 
 const examples = [
   "今から30分ゲームしていい？",
@@ -104,7 +113,7 @@ export function LifeCoachChat({ blocks, tasks, freeMinutes }: { blocks: PlanBloc
     <p className="muted coach-intro">今していいこと、予定への影響、急な外出を相談できます。時間計算は予定データから行い、AIに推測させません。</p>
     <div className="coach-examples">{examples.map((example) => <button key={example} onClick={() => void send(example)}>{example}</button>)}</div>
     {messages.length > 0 && <div className="coach-messages" aria-live="polite">{messages.slice(-6).map((message, index) => <div key={`${message.role}-${index}`} className={`coach-message ${message.role}`}>{message.content}</div>)}</div>}
-    {result && <div className="coach-result"><span className="pill">{verdict}</span>{result.impacts.map((impact) => <div className="coach-impact" key={`${impact.label}-${impact.after}`}><strong>{impact.label}</strong><span>{impact.before}{impact.after ? ` → ${impact.after}` : ""}</span></div>)}{result.options.map((option) => <div className="coach-option" key={option.label}><strong>{option.recommended ? "おすすめ：" : "候補："}{option.label}</strong><span>{option.description}</span></div>)}<small className="muted">{result.aiMode === "openai" ? "AIが表現と選択肢を生成・時間判定は計算ロジック" : "安全なルールベース応答"}</small></div>}
+    {result && <div className="coach-result"><span className="pill">{verdict}</span>{result.impacts.map((impact) => <div className="coach-impact" key={`${impact.label}-${impact.after}`}><strong>{impact.label}</strong><span>{impact.before}{impact.after ? ` → ${impact.after}` : ""}</span></div>)}{result.options.map((option) => <div className="coach-option" key={option.label}><strong>{option.recommended ? "おすすめ：" : "候補："}{option.label}</strong><span>{option.description}</span></div>)}<small className="muted">{result.aiMode === "openai" ? "AIが表現と選択肢を生成・時間判定は計算ロジック" : result.aiIssue ? `ルールベース応答：${aiIssueText[result.aiIssue]}` : "安全なルールベース応答"}</small></div>}
     <details className="route-controls"><summary><MapPin size={16}/> 移動時間も調べる</summary><div className="field"><label>行き先</label><input value={destination} onChange={(event) => setDestination(event.target.value)} placeholder="例：東京駅、大学名、住所"/></div><div className="route-grid"><div className="field"><label>移動手段</label><select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)}><option value="TRANSIT">公共交通</option><option value="DRIVE">車</option><option value="WALK">徒歩</option><option value="BICYCLE">自転車</option></select></div><div className="field"><label>所要時間（手入力・任意）</label><input type="number" min="1" max="1440" value={manualMinutes} onChange={(event) => setManualMinutes(event.target.value)} placeholder="分"/></div></div><button className="button secondary" onClick={locate}><LocateFixed size={17}/> 現在地を使う</button>{routeNote && <p className="muted">{routeNote}</p>}</details>
     <div className="coach-compose"><textarea aria-label="相談内容" value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder="例：今からゲームしていい？"/><button className="button" disabled={loading || !text.trim()} onClick={() => void send()}><Send size={18}/>{loading ? "考え中" : "相談"}</button></div>
   </section>;
