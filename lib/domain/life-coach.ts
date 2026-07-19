@@ -30,8 +30,19 @@ function formatTime(iso: string, timezone: string) {
   }).format(new Date(iso));
 }
 
+function latestFreeWindow(blocks: LifeCoachInput["blocks"], deadline: number, durationMinutes: number, earliest: number) {
+  const duration = durationMinutes * 60000;
+  for (let end = deadline; end - duration >= earliest; end -= 5 * 60000) {
+    const start = end - duration;
+    const collision = blocks.some((block) => start < new Date(block.endsAt).getTime() && end > new Date(block.startsAt).getTime());
+    if (!collision) return { start: new Date(start), end: new Date(end), minutes: durationMinutes };
+  }
+  return undefined;
+}
+
 export function buildFallbackCoachAnswer(input: LifeCoachInput): LifeCoachResult {
   const text = latestUserText(input);
+  const conversationText = input.messages.filter((message) => message.role === "user").slice(-4).map((message) => message.content).join("\n");
   const upcoming = nextBlock(input);
   const available = upcoming ? minutesUntil(upcoming.startsAt, input.now) : (input.freeMinutes ?? 60);
   const upcomingText = upcoming
@@ -39,7 +50,7 @@ export function buildFallbackCoachAnswer(input: LifeCoachInput): LifeCoachResult
     : "この後の固定予定は見つかっていません";
   const isTravel = /(外出|行かな|行きたい|行く|向かう|まで.*(?:何分|時間)|移動|到着|出発)/.test(text);
   const isSmoking = /(タバコ|たばこ|煙草|吸いた)/.test(text);
-  const isBath = /(風呂|入浴|シャワー)/.test(text);
+  const isBath = /(風呂|入浴|シャワー)/.test(conversationText);
   const isPermission = /(していい|やっていい|できる|始めていい|遊んでいい)/.test(text);
 
   if (isTravel) {
@@ -82,11 +93,41 @@ export function buildFallbackCoachAnswer(input: LifeCoachInput): LifeCoachResult
 
   if (isBath) {
     const now = new Date(input.now).getTime();
-    const minimumStart = /明日/.test(text) ? now + 8 * 60 * 60 * 1000 : now;
+    const minimumStart = /明日/.test(conversationText) ? now + 8 * 60 * 60 * 1000 : now;
+    const beforeLeaving = /(家.*出|出発|出かけ|外出.*前)/.test(conversationText);
+    const departure = input.blocks
+      .filter((block) => (block.kind === "travel" || /出発|移動/.test(block.title)) && new Date(block.startsAt).getTime() > minimumStart)
+      .sort((left, right) => left.startsAt.localeCompare(right.startsAt))[0];
     const sleep = input.blocks
       .filter((block) => (block.kind === "sleep" || /睡眠|就寝/.test(block.title)) && new Date(block.startsAt).getTime() > minimumStart)
       .sort((left, right) => left.startsAt.localeCompare(right.startsAt))[0];
     const bathMinutes = requestedMinutes(text, 30);
+    if (beforeLeaving && departure) {
+      const departureAt = new Date(departure.startsAt).getTime();
+      const deadline = departureAt - 15 * 60000;
+      const earliest = Math.max(now, departureAt - 6 * 60 * 60 * 1000);
+      const window = latestFreeWindow(input.blocks, deadline, bathMinutes, earliest)
+        ?? (bathMinutes > 20 ? latestFreeWindow(input.blocks, deadline, 20, earliest) : undefined);
+      if (!window) {
+        return {
+          reply: `明日の「${departure.title}」は${formatTime(departure.startsAt, input.timezone)}からですが、その前に20分以上の空き時間を見つけられませんでした。予定を短縮・移動するか、別の時間帯を選ぶ必要があります。`,
+          intent: "wellbeing", verdict: "not_now", confidence: "high",
+          impacts: [{ label: departure.title, before: formatTime(departure.startsAt, input.timezone), severity: "warning" }],
+          options: [{ label: "別の時間帯を探す", description: "睡眠と固定予定を維持したまま、帰宅後などを検討します。", recommended: true }],
+          questions: [], assumptions: ["出発前に15分の余裕を残して空き時間を検索しました。"]
+        };
+      }
+      const bathStartsAt = window.start;
+      const bathEndsAt = window.end;
+      return {
+        reply: `明日の「${departure.title}」が${formatTime(departure.startsAt, input.timezone)}からなので、${formatTime(bathStartsAt.toISOString(), input.timezone)}〜${formatTime(bathEndsAt.toISOString(), input.timezone)}の入浴がよさそうです。出発前に15分の余裕を残します。`,
+        intent: "wellbeing", verdict: "yes_with_limit", confidence: "high", estimatedMinutes: window.minutes,
+        impacts: [{ label: departure.title, before: formatTime(departure.startsAt, input.timezone), after: "変更なし", severity: "info" }],
+        options: [{ label: `${formatTime(bathStartsAt.toISOString(), input.timezone)}に入浴`, description: `${window.minutes}分で終え、出発準備の余裕を確保します。`, recommended: true }],
+        questions: [], assumptions: [`入浴を${window.minutes}分、出発前の余裕を15分として、連携予定の空き時間を検索しました。`],
+        calendarProposal: { title: "入浴", startsAt: bathStartsAt.toISOString(), endsAt: bathEndsAt.toISOString(), reason: `${departure.title}の前に入浴し、出発まで15分の余裕を確保`, kind: "routine" }
+      };
+    }
     if (sleep) {
       const bathEndsAt = new Date(new Date(sleep.startsAt).getTime() - 30 * 60000);
       const bathStartsAt = new Date(bathEndsAt.getTime() - bathMinutes * 60000);
@@ -95,7 +136,8 @@ export function buildFallbackCoachAnswer(input: LifeCoachInput): LifeCoachResult
         intent: "wellbeing", verdict: "yes_with_limit", confidence: "medium", estimatedMinutes: bathMinutes,
         impacts: [{ label: "就寝", before: formatTime(sleep.startsAt, input.timezone), after: "変更なし", severity: "info" }],
         options: [{ label: `${formatTime(bathStartsAt.toISOString(), input.timezone)}に入浴`, description: `${bathMinutes}分で終え、就寝前の余裕を確保します。`, recommended: true }],
-        questions: [], assumptions: [`入浴時間を${bathMinutes}分、就寝前の余裕を30分として計算しました。`]
+        questions: [], assumptions: [`入浴時間を${bathMinutes}分、就寝前の余裕を30分として計算しました。`],
+        calendarProposal: { title: "入浴", startsAt: bathStartsAt.toISOString(), endsAt: bathEndsAt.toISOString(), reason: "就寝前に30分の余裕を残して入浴", kind: "routine" }
       };
     }
     return {

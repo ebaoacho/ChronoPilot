@@ -60,6 +60,18 @@ describe("life coach deterministic advice", () => {
     expect(result.reply).toContain("23:00〜23:30");
     expect(result.verdict).toBe("yes_with_limit");
   });
+
+  it("uses conversation history and tomorrow's departure for a calendar proposal", () => {
+    const value = input("ゲームでお風呂に入れなかった。明日の朝に入りたい");
+    value.messages.push({ role: "assistant", content: "明日の予定を確認します。" });
+    value.messages.push({ role: "user", content: "家を出る前に入りたいです" });
+    value.now = "2026-07-19T14:40:00.000Z";
+    value.blocks = [{ title: "大学への移動", kind: "travel", startsAt: "2026-07-20T00:00:00.000Z", endsAt: "2026-07-20T00:50:00.000Z", fixed: true }];
+    const result = buildFallbackCoachAnswer(value);
+    expect(result.reply).toContain("大学への移動");
+    expect(result.calendarProposal?.title).toBe("入浴");
+    expect(result.calendarProposal?.endsAt).toBe("2026-07-19T23:45:00.000Z");
+  });
 });
 
 describe("Google Routes duration", () => {

@@ -76,7 +76,8 @@ Use only the supplied timestamps, computed free minutes, route result, tasks, an
 For smoking, acknowledge the feeling without encouraging tobacco; separate scheduling impact from health judgment.
 The messages array contains the conversation. Directly answer its latest user message; do not merely ask them to restate what they want.
 deterministicContext contains calculated constraints and fallback facts, not a response template. Preserve its concrete time facts, but improve and personalize the answer.
-Interpret and display all timestamps in the supplied timezone. Give a clear verdict and practical options. Mention uncertainty in assumptions.`;
+Interpret and display all timestamps in the supplied timezone. Give a clear verdict and practical options. Mention uncertainty in assumptions.
+When the user wants to schedule an action and the supplied blocks reveal a concrete conflict-free window, include calendarProposal. Otherwise set calendarProposal to null. Never invent a free window.`;
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -92,7 +93,8 @@ Interpret and display all timestamps in the supplied timezone. Give a clear verd
         return lifeCoachResultSchema.parse({
           ...result,
           estimatedMinutes: result.estimatedMinutes ?? undefined,
-          impacts: result.impacts.map((impact) => ({ ...impact, before: impact.before ?? undefined, after: impact.after ?? undefined }))
+          impacts: result.impacts.map((impact) => ({ ...impact, before: impact.before ?? undefined, after: impact.after ?? undefined })),
+          calendarProposal: result.calendarProposal ? { ...result.calendarProposal, location: result.calendarProposal.location ?? undefined } : undefined
         });
       }
       // Compatibility fallback for providers that implement JSON mode but not OpenAI strict schemas.
@@ -110,7 +112,10 @@ Interpret and display all timestamps in the supplied timezone. Give a clear verd
           if (!impact || typeof impact !== "object") return impact;
           const value = impact as Record<string, unknown>;
           return { ...value, before: value.before ?? undefined, after: value.after ?? undefined };
-        }) : []
+        }) : [],
+        calendarProposal: raw.calendarProposal && typeof raw.calendarProposal === "object"
+          ? { ...(raw.calendarProposal as Record<string, unknown>), location: (raw.calendarProposal as Record<string, unknown>).location ?? undefined }
+          : undefined
       });
     } catch (error) { lastError = error; }
   }

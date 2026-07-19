@@ -80,7 +80,15 @@ export const lifeCoachResultSchema = z.object({
     recommended: z.boolean()
   })).max(6).default([]),
   questions: z.array(z.string().trim().min(1).max(300)).max(4).default([]),
-  assumptions: z.array(z.string().trim().min(1).max(300)).max(6).default([])
+  assumptions: z.array(z.string().trim().min(1).max(300)).max(6).default([]),
+  calendarProposal: z.object({
+    title: z.string().trim().min(1).max(200),
+    startsAt: z.string().datetime(),
+    endsAt: z.string().datetime(),
+    reason: z.string().trim().min(1).max(500),
+    kind: z.enum(["event", "task", "travel", "routine", "sleep"]),
+    location: z.string().trim().max(300).optional()
+  }).optional()
 });
 
 export const routeEstimateRequestSchema = z.object({
@@ -186,7 +194,15 @@ export const lifeCoachStructuredResultSchema = z.object({
     recommended: z.boolean()
   })).max(6),
   questions: z.array(z.string().trim().min(1).max(300)).max(4),
-  assumptions: z.array(z.string().trim().min(1).max(300)).max(6)
+  assumptions: z.array(z.string().trim().min(1).max(300)).max(6),
+  calendarProposal: z.object({
+    title: z.string().trim().min(1).max(200),
+    startsAt: z.string().datetime(),
+    endsAt: z.string().datetime(),
+    reason: z.string().trim().min(1).max(500),
+    kind: z.enum(["event", "task", "travel", "routine", "sleep"]),
+    location: z.string().trim().max(300).nullable()
+  }).nullable()
 });
 
 export const planBlockCreateSchema = z.object({
