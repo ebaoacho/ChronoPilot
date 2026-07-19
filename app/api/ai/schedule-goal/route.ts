@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { OpenAiPlanningProvider } from "@/lib/ai/provider";
 import { createFallbackGoalDecomposition, scheduleGoalWork, type BusyInterval } from "@/lib/domain/goal-planner";
 import { createRecurringPlan, isRecurringScheduleText } from "@/lib/domain/recurring-planner";
+import { createMorningRoutinePlan, fallbackMorningRoutine, isMorningRoutineRequest } from "@/lib/domain/morning-routine-planner";
 import { goalDecompositionSchema, goalPlanningRequestSchema } from "@/lib/domain/schemas";
 import { getGoogleAccessToken, listGoogleBusy, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
 import { createSupabaseServer, requireUser } from "@/lib/supabase/server";
@@ -16,12 +17,17 @@ export async function POST(request: Request) {
     let connection: GoogleCalendarConnection | null = null;
     const busy: BusyInterval[] = [];
     const warnings: string[] = [];
+    let targetSleepMinutes = 420;
+    let morningPrepMinutes = 52;
 
     if (!user.demo && db) {
-      const [{ data: connectionData }, { data: planBlocks, error: planError }] = await Promise.all([
+      const [{ data: connectionData }, { data: planBlocks, error: planError }, { data: settings }] = await Promise.all([
         db.from("calendar_connections").select("id,encrypted_refresh_token,selected_calendar_ids,write_mode").eq("user_id", user.id).eq("provider", "google").maybeSingle(),
-        db.from("plan_blocks").select("title,starts_at,ends_at").eq("user_id", user.id).lt("starts_at", horizonEnd.toISOString()).gt("ends_at", now.toISOString())
+        db.from("plan_blocks").select("title,starts_at,ends_at").eq("user_id", user.id).lt("starts_at", horizonEnd.toISOString()).gt("ends_at", now.toISOString()),
+        db.from("user_settings").select("target_sleep_minutes,morning_prep_minutes").eq("user_id", user.id).maybeSingle()
       ]);
+      targetSleepMinutes = settings?.target_sleep_minutes ?? 420;
+      morningPrepMinutes = settings?.morning_prep_minutes ?? 52;
       if (planError) warnings.push("ChronoPilot内の既存計画をすべて取得できませんでした。");
       busy.push(...(planBlocks ?? []).map((block) => ({ title: block.title, startsAt: block.starts_at, endsAt: block.ends_at })));
       connection = connectionData as GoogleCalendarConnection | null;
@@ -35,6 +41,25 @@ export async function POST(request: Request) {
           busy.push(...(cachedEvents ?? []).map((event) => ({ title: event.title, startsAt: event.starts_at, endsAt: event.ends_at })));
         }
       }
+    }
+
+    if (isMorningRoutineRequest(input.text)) {
+      let suggestion = fallbackMorningRoutine;
+      let aiMode: "openai" | "hybrid" = "hybrid";
+      if (process.env.OPENAI_API_KEY) {
+        try {
+          suggestion = await new OpenAiPlanningProvider().suggestMorningRoutine({ text: input.text, morningPrepMinutes, targetSleepMinutes, timezone: input.timezone });
+          aiMode = "openai";
+        } catch { warnings.push("AIのルーティン提案を検証できなかったため、睡眠を守る標準的な朝ルーティンを使いました。"); }
+      }
+      const earlyEvent = busy.map((item) => item.startsAt).filter((value) => {
+        const date = new Date(value);
+        const local = new Date(date.getTime() - input.timezoneOffsetMinutes * 60000);
+        return date > now && date.getTime() < now.getTime() + 36 * 60 * 60 * 1000 && local.getUTCHours() < 12;
+      }).sort()[0];
+      const proposalId = crypto.randomUUID();
+      const routine = createMorningRoutinePlan({ now, horizonDays: input.horizonDays, timezoneOffsetMinutes: input.timezoneOffsetMinutes, timeZone: input.timezone, proposalId, morningPrepMinutes, targetSleepMinutes, firstEventAt: earlyEvent, suggestion, requestText: input.text });
+      return NextResponse.json({ proposalId, proposalType: "recurring", proposalKind: "morning_routine", goalTitle: routine.title, summary: routine.summary, deadlineAt: horizonEnd.toISOString(), blocks: routine.blocks, series: routine.series, recurrenceLabel: routine.recurrenceLabel, unscheduled: [], warnings, assumptions: routine.assumptions, aiMode, calendarConnected: Boolean(connection), writeMode: connection?.write_mode ?? "confirm" });
     }
 
     if (isRecurringScheduleText(input.text)) {

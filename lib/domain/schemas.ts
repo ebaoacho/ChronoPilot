@@ -132,7 +132,7 @@ export const scheduledSuggestionSchema = z.object({
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
   reason: z.string().trim().min(1).max(500),
-  kind: z.enum(["event", "task", "travel"]).optional(),
+  kind: z.enum(["event", "task", "travel", "routine", "sleep"]).optional(),
   location: z.string().trim().max(300).optional(),
   source: z.literal("ai_suggestion")
 }).refine((value) => new Date(value.endsAt) > new Date(value.startsAt), "終了時刻を確認してください");
@@ -144,7 +144,7 @@ export const calendarWritePlanSchema = z.object({
 
 export const recurringSeriesSchema = z.object({
   id: z.string().uuid(), title: z.string().trim().min(1).max(200),
-  kind: z.enum(["event", "task", "travel"]), startsAt: z.string().datetime(), endsAt: z.string().datetime(),
+  kind: z.enum(["event", "task", "travel", "routine", "sleep"]), startsAt: z.string().datetime(), endsAt: z.string().datetime(),
   reason: z.string().trim().min(1).max(500), location: z.string().trim().max(300).optional(),
   recurrence: z.string().regex(/^RRULE:FREQ=(DAILY|WEEKLY);/), timeZone: z.string().trim().min(1).max(80),
   weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7)
@@ -152,9 +152,19 @@ export const recurringSeriesSchema = z.object({
 
 export const calendarWriteRecurringSchema = z.object({
   proposalId: z.string().uuid(),
-  series: z.array(recurringSeriesSchema).min(1).max(5),
-  blocks: z.array(scheduledSuggestionSchema).min(1).max(200)
+  series: z.array(recurringSeriesSchema).min(1).max(12),
+  blocks: z.array(scheduledSuggestionSchema).min(1).max(800)
 }).refine((value) => value.blocks.every((block) => block.proposalId === value.proposalId), "提案IDが一致しません");
+
+export const morningRoutineSuggestionSchema = z.object({
+  title: z.string().trim().min(1).max(100).default("おすすめモーニングルーティン"),
+  steps: z.array(z.object({
+    title: z.string().trim().min(1).max(100),
+    minutes: z.number().int().min(2).max(30),
+    reason: z.string().trim().min(1).max(300)
+  })).min(3).max(6),
+  assumptions: z.array(z.string().trim().min(1).max(300)).max(6).default([])
+});
 
 export const planBlockCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),

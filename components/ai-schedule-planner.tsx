@@ -5,12 +5,12 @@ import { CalendarCheck, Check, Sparkles } from "lucide-react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 
-export type SuggestedBlock = { id: string; proposalId: string; title: string; startsAt: string; endsAt: string; reason: string; kind?: "event"|"task"|"travel"; location?:string; source: "ai_suggestion" };
-type RecurringSeries={id:string;title:string;kind:"event"|"task"|"travel";startsAt:string;endsAt:string;reason:string;location?:string;recurrence:string;timeZone:string;weekdays:number[]};
+export type SuggestedBlock = { id: string; proposalId: string; title: string; startsAt: string; endsAt: string; reason: string; kind?: "event"|"task"|"travel"|"routine"|"sleep"; location?:string; source: "ai_suggestion" };
+type RecurringSeries={id:string;title:string;kind:"event"|"task"|"travel"|"routine"|"sleep";startsAt:string;endsAt:string;reason:string;location?:string;recurrence:string;timeZone:string;weekdays:number[]};
 type Proposal = {
   proposalId: string; goalTitle: string; summary: string; deadlineAt: string; blocks: SuggestedBlock[];
   unscheduled: Array<{ title: string; minutes: number }>; warnings: string[]; assumptions: string[];
-  proposalType:"goal"|"recurring";series?:RecurringSeries[];recurrenceLabel?:string;
+  proposalType:"goal"|"recurring";proposalKind?:"morning_routine";series?:RecurringSeries[];recurrenceLabel?:string;
   aiMode: "openai" | "fallback"|"hybrid"; calendarConnected: boolean; writeMode: "confirm" | "today" | "all" | "readonly";
 };
 
@@ -69,7 +69,7 @@ export function AiSchedulePlanner({ connected, onRegistered }: { connected: bool
     <button className="button" disabled={loading || !text.trim()} onClick={() => void propose()}><Sparkles size={17}/>{loading ? "空き時間を確認中…" : "AIに予定を提案してもらう"}</button>
     {message && <p role="status" className="planner-message">{message}</p>}
     {proposal && <div className="planner-result">
-      <div><span className="pill">{proposal.aiMode === "openai" ? "AI分解 + 時間計算" : proposal.aiMode==="hybrid"?"定期予定を認識 + 安全な時刻計算":"ルールベース分解 + 時間計算"}</span><h3>{proposal.goalTitle}</h3><p className="muted">{proposal.summary}</p>{proposal.recurrenceLabel&&<span className="pill">{proposal.recurrenceLabel}</span>}</div>
+      <div><span className="pill">{proposal.proposalKind==="morning_routine"?(proposal.aiMode==="openai"?"AIルーティン提案 + 睡眠優先の時刻計算":"標準ルーティン + 睡眠優先の時刻計算"):proposal.aiMode === "openai" ? "AI分解 + 時間計算" : proposal.aiMode==="hybrid"?"定期予定を認識 + 安全な時刻計算":"ルールベース分解 + 時間計算"}</span><h3>{proposal.goalTitle}</h3><p className="muted">{proposal.summary}</p>{proposal.recurrenceLabel&&<span className="pill">{proposal.recurrenceLabel}</span>}</div>
       {proposal.blocks.length ? <><div className="planner-blocks">{proposal.blocks.slice(0,12).map((block) => <article key={block.id} className="planner-block"><div className="planner-date">{format(new Date(block.startsAt), "M/d (E)", { locale: ja })}</div><div><strong>{block.title}</strong><div>{format(new Date(block.startsAt), "H:mm")}–{format(new Date(block.endsAt), "H:mm")}</div><small className="muted">{block.reason}</small></div></article>)}</div>{proposal.blocks.length>12&&<p className="muted">ほか {proposal.blocks.length-12}件 · Google Calendarには期間内のすべてを定期予定として登録します。</p>}</> : <p>配置できる時間が見つかりませんでした。</p>}
       {[...proposal.warnings, ...proposal.assumptions].map((warning) => <p className="muted planner-note" key={warning}>※ {warning}</p>)}
       {proposal.unscheduled.map((item) => <p className="planner-note" key={`${item.title}-${item.minutes}`}>未配置：{item.title}（{item.minutes}分）</p>)}

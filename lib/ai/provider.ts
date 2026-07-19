@@ -1,11 +1,12 @@
 import OpenAI from "openai";
 import { z } from "zod";
-import { dailyPlanResultSchema, goalDecompositionSchema, lifeCoachResultSchema, naturalAddResultSchema } from "@/lib/domain/schemas";
+import { dailyPlanResultSchema, goalDecompositionSchema, lifeCoachResultSchema, morningRoutineSuggestionSchema, naturalAddResultSchema } from "@/lib/domain/schemas";
 import type { LifeCoachInput, LifeCoachResult } from "@/lib/domain/life-coach";
 import type { GoalDecomposition } from "@/lib/domain/goal-planner";
 
 export type DailyPlanResult = z.infer<typeof dailyPlanResultSchema>;
 export type NaturalAddResult = z.infer<typeof naturalAddResultSchema>;
+export type MorningRoutineSuggestion = z.infer<typeof morningRoutineSuggestionSchema>;
 export interface AiPlanningProvider {
   generateDailyPlan(input: unknown): Promise<DailyPlanResult>;
   reschedule(input: unknown): Promise<DailyPlanResult>;
@@ -18,6 +19,7 @@ export interface AiPlanningProvider {
   generateLifeReview(input: unknown): Promise<unknown>;
   chatLifeCoach(input: LifeCoachInput): Promise<LifeCoachResult>;
   decomposeGoal(input: { text: string; now: string; deadlineAt?: string; timezone: string }): Promise<GoalDecomposition>;
+  suggestMorningRoutine(input: { text: string; morningPrepMinutes: number; targetSleepMinutes: number; timezone: string }): Promise<MorningRoutineSuggestion>;
 }
 
 async function structured<T>(schema: z.ZodType<T>, system: string, input: unknown): Promise<T> {
@@ -59,5 +61,11 @@ Do not choose session timestamps or calculate free time. The application schedul
 Use the explicit deadline when supplied. If the text contains an unambiguous date, return it as deadlineAt; otherwise omit it.
 Prefer focused sessions of 25-50 minutes. Repeated practice may use multiple sessions. Answer in Japanese.
 Do not invent organization names, appointments, requirements, or facts not present in the request.`, input);
+  }
+  suggestMorningRoutine(input: { text: string; morningPrepMinutes: number; targetSleepMinutes: number; timezone: string }) {
+    return structured(morningRoutineSuggestionSchema, `Suggest a calm, practical Japanese morning routine for one person.
+Return only routine step names, durations, and short reasons. Do not choose timestamps; the application calculates them.
+Keep the combined duration close to morningPrepMinutes. Include hydration, light exposure or gentle movement, basic preparation, and a short daily-priority check when appropriate.
+Do not make medical claims or invent user preferences. Avoid guilt, productivity pressure, and excessive steps.`, input);
   }
 }

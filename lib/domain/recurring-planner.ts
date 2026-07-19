@@ -7,7 +7,7 @@ const DAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
 export type RecurringSeries = {
   id: string;
   title: string;
-  kind: "event" | "travel" | "task";
+  kind: "event" | "travel" | "task" | "routine" | "sleep";
   startsAt: string;
   endsAt: string;
   reason: string;
