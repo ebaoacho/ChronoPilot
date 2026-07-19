@@ -142,6 +142,19 @@ export const calendarWritePlanSchema = z.object({
   blocks: z.array(scheduledSuggestionSchema).min(1).max(30)
 });
 
+export const recurringSeriesSchema = z.object({
+  id: z.string().uuid(), title: z.string().trim().min(1).max(200),
+  kind: z.enum(["event", "task", "travel"]), startsAt: z.string().datetime(), endsAt: z.string().datetime(),
+  reason: z.string().trim().min(1).max(500), location: z.string().trim().max(300).optional(),
+  recurrence: z.string().regex(/^RRULE:FREQ=(DAILY|WEEKLY);/), timeZone: z.string().trim().min(1).max(80)
+}).refine((value) => new Date(value.endsAt) > new Date(value.startsAt), "終了時刻を確認してください");
+
+export const calendarWriteRecurringSchema = z.object({
+  proposalId: z.string().uuid(),
+  series: z.array(recurringSeriesSchema).min(1).max(5),
+  blocks: z.array(scheduledSuggestionSchema).min(1).max(200)
+}).refine((value) => value.blocks.every((block) => block.proposalId === value.proposalId), "提案IDが一致しません");
+
 export const planBlockCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
   kind: z.enum(["event", "task", "travel"]).default("event"),

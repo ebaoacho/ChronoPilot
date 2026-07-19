@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { OpenAiPlanningProvider } from "@/lib/ai/provider";
 import { createFallbackGoalDecomposition, scheduleGoalWork, type BusyInterval } from "@/lib/domain/goal-planner";
+import { createRecurringPlan, isRecurringScheduleText } from "@/lib/domain/recurring-planner";
 import { goalDecompositionSchema, goalPlanningRequestSchema } from "@/lib/domain/schemas";
 import { getGoogleAccessToken, listGoogleBusy, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
 import { createSupabaseServer, requireUser } from "@/lib/supabase/server";
@@ -36,6 +37,20 @@ export async function POST(request: Request) {
       }
     }
 
+    if (isRecurringScheduleText(input.text)) {
+      const proposalId = crypto.randomUUID();
+      const recurring = createRecurringPlan({ text: input.text, now, horizonDays: input.horizonDays, timezoneOffsetMinutes: input.timezoneOffsetMinutes, timeZone: input.timezone, proposalId });
+      const conflicts = recurring.blocks.filter((block) => busy.some((item) => new Date(block.startsAt) < new Date(item.endsAt) && new Date(item.startsAt) < new Date(block.endsAt)));
+      if (conflicts.length) warnings.push(`${conflicts.length}件が既存予定と重なっています。登録前に期間または予定を調整してください。`);
+      return NextResponse.json({
+        proposalId, proposalType: "recurring", goalTitle: recurring.title, summary: recurring.summary,
+        deadlineAt: horizonEnd.toISOString(), blocks: recurring.blocks, series: recurring.series,
+        recurrenceLabel: recurring.recurrenceLabel, unscheduled: [], warnings,
+        assumptions: recurring.assumptions, aiMode: "hybrid",
+        calendarConnected: Boolean(connection), writeMode: connection?.write_mode ?? "confirm"
+      });
+    }
+
     let decomposition = createFallbackGoalDecomposition(input.text, input.deadlineAt);
     let aiMode: "openai" | "fallback" = "fallback";
     if (process.env.OPENAI_API_KEY) {
@@ -58,7 +73,7 @@ export async function POST(request: Request) {
     if (plan.unscheduled.length) warnings.push(`${plan.unscheduled.length}件は締切までの空き時間に配置できませんでした。`);
 
     return NextResponse.json({
-      proposalId, goalTitle: decomposition.goalTitle, summary: decomposition.summary, assumptions: decomposition.assumptions,
+      proposalId, proposalType: "goal", goalTitle: decomposition.goalTitle, summary: decomposition.summary, assumptions: decomposition.assumptions,
       deadlineAt, blocks: plan.scheduled, unscheduled: plan.unscheduled, warnings, aiMode,
       calendarConnected: Boolean(connection), writeMode: connection?.write_mode ?? "confirm"
     });

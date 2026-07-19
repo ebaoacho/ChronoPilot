@@ -5,11 +5,13 @@ import { CalendarCheck, Check, Sparkles } from "lucide-react";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 
-export type SuggestedBlock = { id: string; proposalId: string; title: string; startsAt: string; endsAt: string; reason: string; source: "ai_suggestion" };
+export type SuggestedBlock = { id: string; proposalId: string; title: string; startsAt: string; endsAt: string; reason: string; kind?: "event"|"task"|"travel"; location?:string; source: "ai_suggestion" };
+type RecurringSeries={id:string;title:string;kind:"event"|"task"|"travel";startsAt:string;endsAt:string;reason:string;location?:string;recurrence:string;timeZone:string};
 type Proposal = {
   proposalId: string; goalTitle: string; summary: string; deadlineAt: string; blocks: SuggestedBlock[];
   unscheduled: Array<{ title: string; minutes: number }>; warnings: string[]; assumptions: string[];
-  aiMode: "openai" | "fallback"; calendarConnected: boolean; writeMode: "confirm" | "today" | "all" | "readonly";
+  proposalType:"goal"|"recurring";series?:RecurringSeries[];recurrenceLabel?:string;
+  aiMode: "openai" | "fallback"|"hybrid"; calendarConnected: boolean; writeMode: "confirm" | "today" | "all" | "readonly";
 };
 
 export function AiSchedulePlanner({ connected, onRegistered }: { connected: boolean; onRegistered: (blocks: SuggestedBlock[]) => Promise<void> }) {
@@ -26,10 +28,11 @@ export function AiSchedulePlanner({ connected, onRegistered }: { connected: bool
     if (!value.calendarConnected || value.writeMode === "readonly") return;
     setRegistering(true); setMessage("");
     try {
-      const response = await fetch("/api/calendar/write-plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ proposalId: value.proposalId, blocks: value.blocks }) });
+      const recurring=value.proposalType==="recurring";
+      const response = await fetch(recurring?"/api/calendar/write-recurring":"/api/calendar/write-plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(recurring?{ proposalId: value.proposalId, series:value.series,blocks:value.blocks }:{ proposalId: value.proposalId, blocks: value.blocks }) });
       const body = await response.json() as { registered?: Array<{ title: string }>; error?: string; conflicts?: unknown[] };
       if (!response.ok) throw new Error(body.error ?? "登録できませんでした");
-      setMessage(`${body.registered?.length ?? 0}件をGoogle Calendarへ登録しました。`);
+      setMessage(recurring?`${body.registered?.length ?? 0}種類の定期予定をGoogle Calendarへ登録しました。`:`${body.registered?.length ?? 0}件をGoogle Calendarへ登録しました。`);
       await onRegistered(value.blocks);
     } catch (error) { setMessage(error instanceof Error ? error.message : "登録できませんでした"); }
     finally { setRegistering(false); }
@@ -66,8 +69,8 @@ export function AiSchedulePlanner({ connected, onRegistered }: { connected: bool
     <button className="button" disabled={loading || !text.trim()} onClick={() => void propose()}><Sparkles size={17}/>{loading ? "空き時間を確認中…" : "AIに予定を提案してもらう"}</button>
     {message && <p role="status" className="planner-message">{message}</p>}
     {proposal && <div className="planner-result">
-      <div><span className="pill">{proposal.aiMode === "openai" ? "AI分解 + 時間計算" : "ルールベース分解 + 時間計算"}</span><h3>{proposal.goalTitle}</h3><p className="muted">{proposal.summary}</p></div>
-      {proposal.blocks.length ? <div className="planner-blocks">{proposal.blocks.map((block) => <article key={block.id} className="planner-block"><div className="planner-date">{format(new Date(block.startsAt), "M/d (E)", { locale: ja })}</div><div><strong>{block.title}</strong><div>{format(new Date(block.startsAt), "H:mm")}–{format(new Date(block.endsAt), "H:mm")}</div><small className="muted">{block.reason}</small></div></article>)}</div> : <p>配置できる時間が見つかりませんでした。</p>}
+      <div><span className="pill">{proposal.aiMode === "openai" ? "AI分解 + 時間計算" : proposal.aiMode==="hybrid"?"定期予定を認識 + 安全な時刻計算":"ルールベース分解 + 時間計算"}</span><h3>{proposal.goalTitle}</h3><p className="muted">{proposal.summary}</p>{proposal.recurrenceLabel&&<span className="pill">{proposal.recurrenceLabel}</span>}</div>
+      {proposal.blocks.length ? <><div className="planner-blocks">{proposal.blocks.slice(0,12).map((block) => <article key={block.id} className="planner-block"><div className="planner-date">{format(new Date(block.startsAt), "M/d (E)", { locale: ja })}</div><div><strong>{block.title}</strong><div>{format(new Date(block.startsAt), "H:mm")}–{format(new Date(block.endsAt), "H:mm")}</div><small className="muted">{block.reason}</small></div></article>)}</div>{proposal.blocks.length>12&&<p className="muted">ほか {proposal.blocks.length-12}件 · Google Calendarには期間内のすべてを定期予定として登録します。</p>}</> : <p>配置できる時間が見つかりませんでした。</p>}
       {[...proposal.warnings, ...proposal.assumptions].map((warning) => <p className="muted planner-note" key={warning}>※ {warning}</p>)}
       {proposal.unscheduled.map((item) => <p className="planner-note" key={`${item.title}-${item.minutes}`}>未配置：{item.title}（{item.minutes}分）</p>)}
       {proposal.calendarConnected && proposal.writeMode !== "readonly" && proposal.blocks.length > 0 && !autoRegister && <button className="button" disabled={registering} onClick={() => void registerPlan(proposal)}><CalendarCheck size={18}/>{registering ? "重複を再確認中…" : "この提案をGoogle Calendarに登録"}</button>}

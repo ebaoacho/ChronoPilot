@@ -98,4 +98,37 @@ export async function insertGooglePlanBlock(input: {
   return response.json() as Promise<GoogleInsertedEvent>;
 }
 
+export async function insertGoogleRecurringBlock(input: {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  reason: string;
+  location?: string;
+  recurrence: string;
+  timeZone: string;
+  proposalId: string;
+  seriesId: string;
+}) {
+  const endpoint = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(input.calendarId)}/events?sendUpdates=none`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { authorization: `Bearer ${input.accessToken}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      id: input.eventId, summary: input.title, description: `ChronoPilot 定期予定\n${input.reason}`,
+      location: input.location || undefined, start: { dateTime: input.startsAt, timeZone: input.timeZone }, end: { dateTime: input.endsAt, timeZone: input.timeZone },
+      recurrence: [input.recurrence],
+      extendedProperties: { private: { chronopilotProposalId: input.proposalId, chronopilotSeriesId: input.seriesId } }
+    })
+  });
+  if (response.status === 409) {
+    const existing = await getGoogleEvent(input.accessToken, input.calendarId, input.eventId);
+    if (existing) return existing;
+  }
+  if (!response.ok) throw new Error(`Google Calendarへ定期予定を登録できませんでした (${response.status})`);
+  return response.json() as Promise<GoogleInsertedEvent>;
+}
+
 export type GoogleInsertedEvent = { id: string; etag?: string; status?: string; htmlLink?: string; summary?: string; start?: { dateTime?: string }; end?: { dateTime?: string } };
