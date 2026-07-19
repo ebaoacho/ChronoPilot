@@ -23,4 +23,12 @@ describe("dedupeExternalCalendarEvents", () => {
     ]);
     expect(result).toHaveLength(2);
   });
+
+  it("shows an expanded recurring occurrence instead of its series master", () => {
+    const result = dedupeExternalCalendarEvents([
+      { ...base, id: "master-row", external_event_id: "series-master", external_calendar_id: "me@example.com", raw: { recurrence: "RRULE:FREQ=DAILY" } },
+      { ...base, id: "instance-row", external_event_id: "series-instance", external_calendar_id: "me@example.com", raw: { recurringEventId: "series-master" } }
+    ]);
+    expect(result.map((event) => event.id)).toEqual(["instance-row"]);
+  });
 });

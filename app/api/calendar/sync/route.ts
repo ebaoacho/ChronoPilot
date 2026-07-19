@@ -77,7 +77,9 @@ export async function POST() {
       if (primaryCalendarId && calendarId === primaryCalendarId) primarySynced = true;
 
       const events = await eventsResponse.json() as { items?: GoogleEvent[] };
+      const recurringMasterIds = new Set<string>();
       for (const event of events.items ?? []) {
+        if (event.recurringEventId) recurringMasterIds.add(event.recurringEventId);
         const start = event.start?.dateTime ?? event.start?.date;
         const end = event.end?.dateTime ?? event.end?.date;
         if (event.status === "cancelled" && (!start || !end)) {
@@ -110,6 +112,14 @@ export async function POST() {
           deleted_at: event.status === "cancelled" ? new Date().toISOString() : null
         }, { onConflict: "user_id,external_calendar_id,external_event_id" });
         if (!upsertError) count++;
+      }
+      if (recurringMasterIds.size) {
+        await db!.from("external_calendar_events")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("connection_id", connection.id)
+          .eq("external_calendar_id", calendarId)
+          .in("external_event_id", [...recurringMasterIds]);
       }
     }
 

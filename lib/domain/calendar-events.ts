@@ -4,6 +4,7 @@ export type ExternalCalendarEventIdentity = {
   external_calendar_id: string;
   starts_at: string;
   ends_at: string;
+  raw?: Record<string, unknown> | null;
 };
 
 /**
@@ -19,5 +20,10 @@ export function dedupeExternalCalendarEvents<T extends ExternalCalendarEventIden
       unique.set(key, event);
     }
   }
-  return [...unique.values()].sort((left, right) => left.starts_at.localeCompare(right.starts_at));
+  const recurringMasterIds = new Set([...unique.values()].flatMap((event) =>
+    typeof event.raw?.recurringEventId === "string" ? [event.raw.recurringEventId] : []
+  ));
+  return [...unique.values()]
+    .filter((event) => !recurringMasterIds.has(event.external_event_id))
+    .sort((left, right) => left.starts_at.localeCompare(right.starts_at));
 }
