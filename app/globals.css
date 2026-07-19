@@ -73,6 +73,15 @@ button { cursor:pointer; }
 .calendar-period { min-width:0; text-align:center; flex:1; }
 .calendar-day-group + .calendar-day-group { margin-top:22px; }
 .calendar-day-heading { position:sticky; top:0; z-index:2; margin:16px -4px 8px; padding:8px 4px; background:var(--panel); font-size:15px; }
+.calendar-item-title { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.icon-button { display:grid; place-items:center; width:44px; min-width:44px; height:44px; border:0; border-radius:12px; color:var(--muted); background:transparent; }
+.icon-button.danger:hover,.icon-button.danger:focus-visible { color:var(--warn); background:var(--panel2); }
+.modal-backdrop { position:fixed; inset:0; z-index:80; display:grid; place-items:center; padding:20px; background:rgba(0,0,0,.68); }
+.delete-dialog { width:min(100%,460px); max-height:calc(100dvh - 40px); overflow:auto; }
+.delete-scope { display:grid; gap:8px; margin:16px 0; }
+.delete-scope label { display:flex; align-items:center; gap:10px; min-height:44px; }
+.delete-scope input { width:20px; height:20px; }
+.danger-button { background:var(--warn); color:white; }
 .ai-planner { margin-bottom:14px; }
 .ai-planner h2 { display:flex; align-items:center; gap:8px; }
 .planner-fields { display:grid; grid-template-columns:minmax(0,2fr) minmax(100px,1fr); gap:10px; }

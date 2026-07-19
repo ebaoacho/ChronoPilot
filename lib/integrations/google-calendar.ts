@@ -61,6 +61,14 @@ export async function getGoogleEvent(accessToken: string, calendarId: string, ev
   return response.json() as Promise<GoogleInsertedEvent>;
 }
 
+export async function deleteGoogleEvent(accessToken: string, calendarId: string, eventId: string) {
+  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`, {
+    method: "DELETE", headers: { authorization: `Bearer ${accessToken}` }
+  });
+  if (response.status === 404 || response.status === 410 || response.status === 204) return;
+  if (!response.ok) throw new Error(`Google Calendarから削除できませんでした (${response.status})`);
+}
+
 export async function insertGooglePlanBlock(input: {
   accessToken: string;
   calendarId: string;

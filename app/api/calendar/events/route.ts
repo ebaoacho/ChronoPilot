@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     const db = await createSupabaseServer();
     const [{ data: events, error: eventsError }, { data: planBlocks, error: planBlocksError }, { data: connection }] = await Promise.all([
       db!.from("external_calendar_events")
-        .select("id,title,starts_at,ends_at,location,external_calendar_id,status,updated_at")
+        .select("id,title,starts_at,ends_at,location,external_calendar_id,status,updated_at,raw")
         .eq("user_id", user.id).is("deleted_at", null)
         .lt("starts_at", input.end).gt("ends_at", input.start)
         .order("starts_at", { ascending: true }),
