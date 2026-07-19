@@ -37,7 +37,7 @@ Windows PowerShellでは `Copy-Item .env.example .env.local` を使います。S
 
 | 変数 | 用途 |
 | --- | --- |
-| `NEXT_PUBLIC_APP_URL` | ローカルまたは本番のHTTPS URL |
+| `NEXT_PUBLIC_APP_URL` | 本番では `https://chronopilot.vercel.app`。ローカルでは `http://localhost:3000` |
 | `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ブラウザで使用可能なSupabase公開値 |
 | `SUPABASE_SERVICE_ROLE_KEY` | Cron専用。クライアントへ渡さない |
 | `ALLOWED_GOOGLE_EMAILS` | 許可メール。複数はカンマ区切り。空は全Googleユーザー許可 |
@@ -127,7 +127,7 @@ npx vercel env add NEXT_PUBLIC_APP_URL production
 npx vercel deploy --prod
 ```
 
-デプロイ後、`NEXT_PUBLIC_APP_URL`、Supabase Site URL、Google OAuth origin/redirectを実URLへ更新して再デプロイします。`vercel.json` にframeworkとCronがあります。Preview URLは都度変わるため、Google OAuth redirectを無制限に追加せず、認証検証は固定の本番または専用preview domainを推奨します。PWA・PushにはHTTPSが必須です。
+デプロイ後、`NEXT_PUBLIC_APP_URL=https://chronopilot.vercel.app`、Supabase Site URL、Google OAuth origin/redirectを実URLへ更新して再デプロイします。`vercel.json` にframeworkとCronがあります。Preview URLは都度変わるため、Google OAuth redirectを無制限に追加せず、認証検証は固定の本番または専用preview domainを推奨します。PWA・PushにはHTTPSが必須です。
 
 ## iPhoneへ追加
 

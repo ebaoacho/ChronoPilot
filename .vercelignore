@@ -1,0 +1,12 @@
+.env
+.env.*
+.env.local
+.git
+.github
+.next
+node_modules
+coverage
+playwright-report
+test-results
+tests
+e2e
