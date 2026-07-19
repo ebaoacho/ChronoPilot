@@ -146,7 +146,8 @@ export const recurringSeriesSchema = z.object({
   id: z.string().uuid(), title: z.string().trim().min(1).max(200),
   kind: z.enum(["event", "task", "travel"]), startsAt: z.string().datetime(), endsAt: z.string().datetime(),
   reason: z.string().trim().min(1).max(500), location: z.string().trim().max(300).optional(),
-  recurrence: z.string().regex(/^RRULE:FREQ=(DAILY|WEEKLY);/), timeZone: z.string().trim().min(1).max(80)
+  recurrence: z.string().regex(/^RRULE:FREQ=(DAILY|WEEKLY);/), timeZone: z.string().trim().min(1).max(80),
+  weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7)
 }).refine((value) => new Date(value.endsAt) > new Date(value.startsAt), "終了時刻を確認してください");
 
 export const calendarWriteRecurringSchema = z.object({

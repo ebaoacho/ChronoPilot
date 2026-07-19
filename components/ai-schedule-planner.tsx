@@ -6,7 +6,7 @@ import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 
 export type SuggestedBlock = { id: string; proposalId: string; title: string; startsAt: string; endsAt: string; reason: string; kind?: "event"|"task"|"travel"; location?:string; source: "ai_suggestion" };
-type RecurringSeries={id:string;title:string;kind:"event"|"task"|"travel";startsAt:string;endsAt:string;reason:string;location?:string;recurrence:string;timeZone:string};
+type RecurringSeries={id:string;title:string;kind:"event"|"task"|"travel";startsAt:string;endsAt:string;reason:string;location?:string;recurrence:string;timeZone:string;weekdays:number[]};
 type Proposal = {
   proposalId: string; goalTitle: string; summary: string; deadlineAt: string; blocks: SuggestedBlock[];
   unscheduled: Array<{ title: string; minutes: number }>; warnings: string[]; assumptions: string[];

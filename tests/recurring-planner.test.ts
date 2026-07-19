@@ -22,4 +22,20 @@ describe("recurring natural-language planning", () => {
     expect(plan.series[0].recurrence).toContain("BYDAY=MO,TU,WE,TH,FR");
     expect(plan.blocks).toHaveLength(5);
   });
+
+  it("creates clean titles, an arrival break, and a Monday meeting exception", () => {
+    const text = "毎日10時から大学で作業がしたい\n移動50分\n15分前に着きたい\n資料準備30分\n到着後すぐにタバコが吸いたい\n特に月曜日は10時からMTGなのでそれに間に合うようにタバコを吸って資料準備もして余裕を持っていきたい";
+    const plan = createRecurringPlan({ text, now: new Date("2026-07-19T08:00:00.000Z"), horizonDays: 14, timezoneOffsetMinutes: -540, timeZone: "Asia/Tokyo", proposalId: "f90f6fa5-3ef8-4eed-9c2d-3db0203bc513" });
+    expect(plan.title).toBe("大学で集中作業");
+    expect(plan.summary).toContain("月曜日は「月曜MTG」に置き換えます");
+    expect(plan.series.map((item) => item.title)).toEqual(["作業・MTG資料の準備", "大学へ移動", "到着後の休憩（喫煙）", "大学で集中作業", "月曜MTG"]);
+    expect(plan.series.find((item) => item.title === "大学で集中作業")?.weekdays).not.toContain(1);
+    expect(plan.series.find((item) => item.title === "月曜MTG")?.weekdays).toEqual([1]);
+    const monday = plan.blocks.filter((block) => block.startsAt.startsWith("2026-07-20"));
+    expect(monday.map((block) => block.title)).toContain("月曜MTG");
+    expect(monday.map((block) => block.title)).not.toContain("大学で集中作業");
+    const smoking = monday.find((block) => block.title === "到着後の休憩（喫煙）");
+    expect(smoking?.startsAt).toBe("2026-07-20T00:45:00.000Z");
+    expect(smoking?.endsAt).toBe("2026-07-20T00:55:00.000Z");
+  });
 });

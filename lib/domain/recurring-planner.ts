@@ -14,6 +14,7 @@ export type RecurringSeries = {
   location?: string;
   recurrence: string;
   timeZone: string;
+  weekdays: number[];
 };
 
 export type RecurringPlan = {
@@ -52,6 +53,24 @@ export function isRecurringScheduleText(text: string) {
   return /毎日|平日|毎週/.test(text) && Boolean(timeMatch(text));
 }
 
+function recurrenceFor(weekdays: number[], count: number) {
+  return weekdays.length === 7
+    ? `RRULE:FREQ=DAILY;COUNT=${count}`
+    : `RRULE:FREQ=WEEKLY;BYDAY=${weekdays.map((day) => DAY_CODES[day]).join(",")};COUNT=${count}`;
+}
+
+function cleanScheduleTitle(firstLine: string, location?: string) {
+  if (/作業/.test(firstLine)) return `${location ?? "大学"}で集中作業`;
+  if (/勉強|学習/.test(firstLine)) return `${location ? `${location}で` : ""}学習`;
+  return firstLine
+    .replace(/^(?:毎日|平日|毎週[^\d]{0,15})の?/, "")
+    .replace(/(午前|午後)?\s*\d{1,2}時(?:\s*\d{1,2}分)?から?/, "")
+    .replace(/がしたい$/, "をする")
+    .replace(/したい$/, "する")
+    .replace(/に打ち込みたい$/, "に集中する")
+    .trim() || "定期予定";
+}
+
 export function createRecurringPlan(input: {
   text: string;
   now: Date;
@@ -67,12 +86,7 @@ export function createRecurringPlan(input: {
   const firstLine = input.text.split(/\r?\n|。/)[0].trim();
   const location = firstLine.match(/(?:から)?([^\s、。]{1,40})で(?:作業|勉強|仕事|打ち合わせ)/)?.[1]
     ?.replace(/^.*?時(?:から)?/, "");
-  const titleBase = firstLine
-    .replace(/^(?:毎日|平日|毎週[^\d]{0,15})の?/, "")
-    .replace(/(午前|午後)?\s*\d{1,2}時(?:\s*\d{1,2}分)?から?/, "")
-    .replace(/たい$/, "")
-    .trim();
-  const title = titleBase || "定期予定";
+  const title = cleanScheduleTitle(firstLine, location);
   const travelMinutes = Number(input.text.match(/移動\s*(\d{1,3})分/)?.[1] ?? 0);
   const arrivalBufferMinutes = Number(input.text.match(/(\d{1,3})分前(?:に)?(?:着|到着)/)?.[1] ?? 0);
   const preparation = input.text.match(/([^\n。]{1,40}?)(\d{1,3})分/gu);
@@ -82,6 +96,11 @@ export function createRecurringPlan(input: {
   const explicitDuration = input.text.match(/(?:作業|勉強|予定)(?:は|を)?\s*(\d{1,3})分|(?:作業|勉強|予定)(?:は|を)?\s*(\d{1,2})時間/u);
   const durationMinutes = explicitDuration?.[1] ? Number(explicitDuration[1]) : explicitDuration?.[2] ? Number(explicitDuration[2]) * 60 : 120;
   const assumptions = explicitDuration ? [] : ["終了時刻が未指定のため、1回の予定を120分として提案しています。登録前に確認してください。"];
+  const wantsSmokingBreak = /タバコ|煙草|喫煙/.test(input.text);
+  const smokingMinutes = Number(input.text.match(/(?:タバコ|煙草|喫煙)[^\d\n]{0,12}(\d{1,2})分/)?.[1] ?? (wantsSmokingBreak ? 10 : 0));
+  if (wantsSmokingBreak && !/(?:タバコ|煙草|喫煙)[^\d\n]{0,12}\d{1,2}分/.test(input.text)) assumptions.push("到着後の喫煙・休憩時間は、指定がないため10分として提案しています。");
+  const mondayMeeting = /(?:特に)?月曜(?:日)?[^\n。]{0,40}(?:MTG|ミーティング|会議)/i.test(input.text) && weekdays.includes(1);
+  if (mondayMeeting) assumptions.push("月曜MTGの終了時刻が未指定のため、60分として提案しています。");
 
   let startDate = new Date(input.now.getFullYear(), input.now.getMonth(), input.now.getDate());
   const todayStart = localTimestamp(startDate, clock.hour, clock.minute, input.timezoneOffsetMinutes);
@@ -94,29 +113,32 @@ export function createRecurringPlan(input: {
   if (!occurrenceDates.length) throw new Error("提案期間内に対象日がありません");
 
   const count = occurrenceDates.length;
-  const recurrence = weekdays.length === 7
-    ? `RRULE:FREQ=DAILY;COUNT=${count}`
-    : `RRULE:FREQ=WEEKLY;BYDAY=${weekdays.map((day) => DAY_CODES[day]).join(",")};COUNT=${count}`;
   const eventStart = localTimestamp(startDate, clock.hour, clock.minute, input.timezoneOffsetMinutes);
-  const eventEnd = eventStart + durationMinutes * MINUTE;
-  const series: RecurringSeries[] = [{
-    id: crypto.randomUUID(), title, kind: "event", startsAt: new Date(eventStart).toISOString(),
-    endsAt: new Date(eventEnd).toISOString(), reason: "指定された繰り返し予定", location, recurrence, timeZone: input.timeZone
-  }];
-  if (travelMinutes > 0) {
-    const end = eventStart - arrivalBufferMinutes * MINUTE;
-    series.unshift({ id: crypto.randomUUID(), title: `${location ?? title}への移動`, kind: "travel", startsAt: new Date(end - travelMinutes * MINUTE).toISOString(), endsAt: new Date(end).toISOString(), reason: `${travelMinutes}分の移動と${arrivalBufferMinutes}分の到着余裕から逆算`, location, recurrence, timeZone: input.timeZone });
-  }
+  const effectiveArrivalBuffer = Math.max(arrivalBufferMinutes, smokingMinutes + (wantsSmokingBreak ? 5 : 0));
+  const travelEnd = eventStart - effectiveArrivalBuffer * MINUTE;
+  const travelStart = travelEnd - travelMinutes * MINUTE;
+  const series: RecurringSeries[] = [];
+  const addSeries = (item: Omit<RecurringSeries, "id"|"recurrence"|"timeZone"|"weekdays">, days: number[]) => {
+    const matchingDates = occurrenceDates.filter((date) => days.includes(date.getDay()));
+    if (!matchingDates.length) return;
+    const baseShift = localTimestamp(matchingDates[0], clock.hour, clock.minute, input.timezoneOffsetMinutes) - eventStart;
+    series.push({ ...item, id: crypto.randomUUID(), startsAt: new Date(new Date(item.startsAt).getTime() + baseShift).toISOString(), endsAt: new Date(new Date(item.endsAt).getTime() + baseShift).toISOString(), recurrence: recurrenceFor(days, matchingDates.length), timeZone: input.timeZone, weekdays: days });
+  };
   if (prepMinutes > 0) {
-    const next = series[0];
-    const end = new Date(next.startsAt).getTime() - 5 * MINUTE;
-    series.unshift({ id: crypto.randomUUID(), title: prepTitle, kind: "task", startsAt: new Date(end - prepMinutes * MINUTE).toISOString(), endsAt: new Date(end).toISOString(), reason: `入力された準備時間 ${prepMinutes}分`, recurrence, timeZone: input.timeZone });
+    const prepEnd = (travelMinutes > 0 ? travelStart : travelEnd) - 5 * MINUTE;
+    addSeries({ title: prepTitle === "資料準備" ? "作業・MTG資料の準備" : prepTitle, kind: "task", startsAt: new Date(prepEnd - prepMinutes * MINUTE).toISOString(), endsAt: new Date(prepEnd).toISOString(), reason: `入力された準備時間 ${prepMinutes}分` }, weekdays);
   }
+  if (travelMinutes > 0) addSeries({ title: `${location ?? "目的地"}へ移動`, kind: "travel", startsAt: new Date(travelStart).toISOString(), endsAt: new Date(travelEnd).toISOString(), reason: `${travelMinutes}分の移動と${effectiveArrivalBuffer}分の到着後余裕から逆算`, location }, weekdays);
+  if (wantsSmokingBreak) addSeries({ title: "到着後の休憩（喫煙）", kind: "task", startsAt: new Date(travelEnd).toISOString(), endsAt: new Date(travelEnd + smokingMinutes * MINUTE).toISOString(), reason: "到着後に希望された休憩時間。健康を評価せず、時間枠として中立的に配置" }, weekdays);
+  const regularDays = mondayMeeting ? weekdays.filter((day) => day !== 1) : weekdays;
+  addSeries({ title, kind: "event", startsAt: new Date(eventStart).toISOString(), endsAt: new Date(eventStart + durationMinutes * MINUTE).toISOString(), reason: "指定された繰り返し予定", location }, regularDays);
+  if (mondayMeeting) addSeries({ title: "月曜MTG", kind: "event", startsAt: new Date(eventStart).toISOString(), endsAt: new Date(eventStart + 60 * MINUTE).toISOString(), reason: "月曜日10時の固定MTGを優先", location }, [1]);
 
   const blocks = occurrenceDates.flatMap((date) => {
     const base = localTimestamp(date, clock.hour, clock.minute, input.timezoneOffsetMinutes);
-    const firstBase = eventStart;
-    return series.map((item) => {
+    return series.filter((item) => item.weekdays.includes(date.getDay())).map((item) => {
+      const firstDate = occurrenceDates.find((candidate) => item.weekdays.includes(candidate.getDay()))!;
+      const firstBase = localTimestamp(firstDate, clock.hour, clock.minute, input.timezoneOffsetMinutes);
       const offset = new Date(item.startsAt).getTime() - firstBase;
       const duration = new Date(item.endsAt).getTime() - new Date(item.startsAt).getTime();
       return {
@@ -129,7 +151,8 @@ export function createRecurringPlan(input: {
 
   const recurrenceLabel = weekdays.length === 7 ? "毎日" : weekdays.length === 5 && weekdays.every((day, index) => day === index + 1)
     ? "平日" : `毎週 ${weekdays.map((day) => "日月火水木金土"[day]).join("・")}曜日`;
-  return { title, summary: `${recurrenceLabel} ${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}から${count}回の定期予定として提案します。`, series, blocks, assumptions, recurrenceLabel };
+  const exception = mondayMeeting ? "月曜日は「月曜MTG」に置き換えます。" : "";
+  return { title, summary: `${recurrenceLabel} ${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}から${count}回の定期予定として提案します。${exception}`, series, blocks, assumptions, recurrenceLabel };
 }
 
 export function recurringSeriesDescription(series: RecurringSeries) {
