@@ -15,7 +15,18 @@ export default async function Home() {
       db!.from("game_preferences").select("data").eq("user_id", user.id).limit(1).maybeSingle(),
       db!.from("growth_goals").select("data").eq("user_id", user.id).eq("name", "目指すエンジニア像").limit(1).maybeSingle()
     ]);
-    onboarding = Boolean(profileError) || !profile?.onboarding_completed;
+    let completed = !profileError && Boolean(profile?.onboarding_completed);
+    // Older builds could save every preference and growth goal but update zero profile rows.
+    // A saved onboarding growth goal is evidence that the user already submitted the form.
+    if (!completed && growth) {
+      const { error: repairError } = await db!.from("profiles").upsert({
+        id: user.id,
+        user_id: user.id,
+        onboarding_completed: true
+      }, { onConflict: "user_id" });
+      completed = !repairError;
+    }
+    onboarding = !completed;
     const gameData = (game?.data ?? {}) as { weekdayMinutes?: number; holidayMinutes?: number };
     const growthData = (growth?.data ?? {}) as { vision?: string };
     initial = {
