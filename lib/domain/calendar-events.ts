@@ -1,0 +1,23 @@
+export type ExternalCalendarEventIdentity = {
+  id: string;
+  external_event_id: string;
+  external_calendar_id: string;
+  starts_at: string;
+  ends_at: string;
+};
+
+/**
+ * Removes duplicate database rows created by Google calendar aliases.
+ * Distinct Google events remain visible even when their title and time overlap.
+ */
+export function dedupeExternalCalendarEvents<T extends ExternalCalendarEventIdentity>(events: T[]) {
+  const unique = new Map<string, T>();
+  for (const event of events) {
+    const key = `${event.external_event_id}\u0000${event.starts_at}\u0000${event.ends_at}`;
+    const existing = unique.get(key);
+    if (!existing || (existing.external_calendar_id === "primary" && event.external_calendar_id !== "primary")) {
+      unique.set(key, event);
+    }
+  }
+  return [...unique.values()].sort((left, right) => left.starts_at.localeCompare(right.starts_at));
+}

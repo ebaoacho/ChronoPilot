@@ -90,7 +90,24 @@ function CalendarView({blocks,demo,onPlanAdded,onPlanDeleted}:{blocks:PlanBlock[
   async function sync(){setLoading(true);setError("");try{const response=await fetch("/api/calendar/sync",{method:"POST"});const body=await response.json() as {error?:string};if(!response.ok)throw new Error(body.error??"同期できませんでした");await load()}catch(value){setError(value instanceof Error?value.message:"同期できませんでした");setLoading(false)}}
   async function registered(suggestions:SuggestedBlock[]){onPlanAdded(suggestions);await load()}
   async function removeItem(){if(!deleteTarget||deleting)return;setDeleting(true);setError("");try{let deletedIds:string[]=[];const stored=deleteTarget.source==="Google"||/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(deleteTarget.recordId);if(!demo&&stored){const response=await fetch(deleteTarget.source==="Google"?`/api/calendar/events/${deleteTarget.recordId}`:`/api/plan-blocks/${deleteTarget.recordId}`,{method:"DELETE",headers:{"content-type":"application/json"},body:deleteTarget.source==="Google"?JSON.stringify({scope:deleteScope}):undefined});const body=await response.json().catch(()=>({})) as {error?:string;deletedPlanBlockIds?:string[]};if(!response.ok)throw new Error(body.error??"予定を削除できませんでした");deletedIds=body.deletedPlanBlockIds??[]}if(deleteTarget.source==="ChronoPilot")deletedIds.push(deleteTarget.recordId);onPlanDeleted(deletedIds);setEvents(current=>current.filter(event=>event.id!==deleteTarget.recordId));setRemoteBlocks(current=>current.filter(block=>!deletedIds.includes(block.id)));setDeleteTarget(undefined);await load()}catch(value){setError(value instanceof Error?value.message:"予定を削除できませんでした")}finally{setDeleting(false)}}
-  const items=useMemo<CalendarItem[]>(()=>{const localById=new Map(blocks.map(block=>[block.id,block]));const plans=[...remoteBlocks.filter(block=>!localById.has(block.id)).map(block=>({id:block.id,title:block.title,kind:block.kind,startsAt:block.starts_at,endsAt:block.ends_at})),...blocks].filter(block=>new Date(block.startsAt)<range.end&&new Date(block.endsAt)>range.start);return [...events.map(event=>({id:`google-${event.id}`,recordId:event.id,title:event.title,startsAt:event.starts_at,endsAt:event.ends_at,source:"Google" as const,location:event.location,calendarId:event.external_calendar_id,recurring:Boolean(event.raw?.recurringEventId||event.raw?.recurrence)})),...plans.map(block=>({id:`plan-${block.id}`,recordId:block.id,title:block.title,startsAt:block.startsAt,endsAt:block.endsAt,source:"ChronoPilot" as const,kind:block.kind}))].sort((a,b)=>a.startsAt.localeCompare(b.startsAt))},[blocks,events,range.end,range.start,remoteBlocks]);
+  const items=useMemo<CalendarItem[]>(()=>{
+    const localById=new Map(blocks.map(block=>[block.id,block]));
+    const plans=[
+      ...remoteBlocks.filter(block=>!localById.has(block.id)).map(block=>({id:block.id,title:block.title,kind:block.kind,startsAt:block.starts_at,endsAt:block.ends_at,metadata:block.metadata})),
+      ...blocks
+    ].filter(block=>new Date(block.startsAt)<range.end&&new Date(block.endsAt)>range.start);
+    const linkedBlockIds=new Set(events.flatMap(event=>typeof event.raw?.chronopilotBlockId==="string"?[event.raw.chronopilotBlockId]:[]));
+    const generatedGoogleEvents=events.filter(event=>event.raw&&[
+      "chronopilotBlockId","chronopilotProposalId","chronopilotSeriesId","proposalId","seriesId"
+    ].some(key=>typeof event.raw?.[key]==="string"));
+    const visiblePlans=plans.filter(block=>!linkedBlockIds.has(block.id)&&!generatedGoogleEvents.some(event=>
+      event.title===block.title&&event.starts_at===block.startsAt&&event.ends_at===block.endsAt
+    ));
+    return [
+      ...events.map(event=>({id:`google-${event.id}`,recordId:event.id,title:event.title,startsAt:event.starts_at,endsAt:event.ends_at,source:"Google" as const,location:event.location,calendarId:event.external_calendar_id,recurring:Boolean(event.raw?.recurringEventId||event.raw?.recurrence)})),
+      ...visiblePlans.map(block=>({id:`plan-${block.id}`,recordId:block.id,title:block.title,startsAt:block.startsAt,endsAt:block.endsAt,source:"ChronoPilot" as const,kind:block.kind}))
+    ].sort((a,b)=>a.startsAt.localeCompare(b.startsAt));
+  },[blocks,events,range.end,range.start,remoteBlocks]);
   const grouped=useMemo(()=>{const result=new Map<string,CalendarItem[]>();for(const item of items){const key=format(new Date(item.startsAt),"yyyy-MM-dd");result.set(key,[...(result.get(key)??[]),item])}return [...result.entries()]},[items]);
   const periodLabel=view==="day"?format(range.start,"yyyy年M月d日 (E)",{locale:ja}):view==="week"?`${format(range.start,"M月d日")}〜${format(addDays(range.end,-1),"M月d日")}`:format(range.start,"yyyy年M月");
   const viewOptions:[CalendarRangeView,string][]=[["month","月"],["week","週"],["day","日"]];

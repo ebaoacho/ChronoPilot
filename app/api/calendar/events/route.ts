@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { dedupeExternalCalendarEvents } from "@/lib/domain/calendar-events";
 import { createSupabaseServer, requireUser } from "@/lib/supabase/server";
 
 const rangeSchema = z.object({
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
     const db = await createSupabaseServer();
     const [{ data: events, error: eventsError }, { data: planBlocks, error: planBlocksError }, { data: connection }] = await Promise.all([
       db!.from("external_calendar_events")
-        .select("id,title,starts_at,ends_at,location,external_calendar_id,status,updated_at,raw")
+        .select("id,external_event_id,title,starts_at,ends_at,location,external_calendar_id,status,updated_at,raw")
         .eq("user_id", user.id).is("deleted_at", null)
         .lt("starts_at", input.end).gt("ends_at", input.start)
         .order("starts_at", { ascending: true }),
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
     ]);
     if (eventsError) throw eventsError;
     if (planBlocksError) throw planBlocksError;
-    return NextResponse.json({ events: events ?? [], planBlocks: planBlocks ?? [], connected: Boolean(connection), lastSyncedAt: connection?.last_synced_at ?? null, writeMode: connection?.write_mode ?? "confirm" });
+    return NextResponse.json({ events: dedupeExternalCalendarEvents(events ?? []), planBlocks: planBlocks ?? [], connected: Boolean(connection), lastSyncedAt: connection?.last_synced_at ?? null, writeMode: connection?.write_mode ?? "confirm" });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "カレンダーを取得できませんでした" }, { status: 400 });
   }
