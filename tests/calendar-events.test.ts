@@ -31,4 +31,12 @@ describe("dedupeExternalCalendarEvents", () => {
     ]);
     expect(result.map((event) => event.id)).toEqual(["instance-row"]);
   });
+
+  it("collapses stale ChronoPilot-generated copies with the same calendar, title and time", () => {
+    const result = dedupeExternalCalendarEvents([
+      { ...base, id: "old", title: "就寝準備", external_event_id: "old-google-id", external_calendar_id: "me@example.com", raw: { chronopilotSeriesId: "old-series" } },
+      { ...base, id: "current", title: "就寝準備", external_event_id: "current-google-id", external_calendar_id: "me@example.com", raw: { chronopilotSeriesId: "current-series" } }
+    ]);
+    expect(result).toHaveLength(1);
+  });
 });

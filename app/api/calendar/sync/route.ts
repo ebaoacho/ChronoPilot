@@ -62,23 +62,38 @@ export async function POST() {
     let count = 0;
     let primarySynced = false;
     for (const calendarId of selected) {
+      const timeMin = new Date(Date.now() - 7 * 86400000).toISOString();
+      const timeMax = new Date(Date.now() + 90 * 86400000).toISOString();
       const params = new URLSearchParams({
         singleEvents: "true",
         showDeleted: "true",
-        timeMin: new Date(Date.now() - 7 * 86400000).toISOString(),
-        timeMax: new Date(Date.now() + 90 * 86400000).toISOString(),
+        timeMin,
+        timeMax,
         maxResults: "2500"
       });
-      const eventsResponse = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
-        { headers: { authorization: `Bearer ${accessToken}` } }
-      );
-      if (!eventsResponse.ok) continue;
+      const allEvents: GoogleEvent[] = [];
+      let pageToken: string | undefined;
+      let fetchFailed = false;
+      do {
+        if (pageToken) params.set("pageToken", pageToken); else params.delete("pageToken");
+        const eventsResponse = await fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
+          { headers: { authorization: `Bearer ${accessToken}` } }
+        );
+        if (!eventsResponse.ok) {
+          fetchFailed = true;
+          break;
+        }
+        const page = await eventsResponse.json() as { items?: GoogleEvent[]; nextPageToken?: string };
+        allEvents.push(...(page.items ?? []));
+        pageToken = page.nextPageToken;
+      } while (pageToken);
+      if (fetchFailed) continue;
       if (primaryCalendarId && calendarId === primaryCalendarId) primarySynced = true;
 
-      const events = await eventsResponse.json() as { items?: GoogleEvent[] };
       const recurringMasterIds = new Set<string>();
-      for (const event of events.items ?? []) {
+      const liveEventIds = new Set<string>();
+      for (const event of allEvents) {
         if (event.recurringEventId) recurringMasterIds.add(event.recurringEventId);
         const start = event.start?.dateTime ?? event.start?.date;
         const end = event.end?.dateTime ?? event.end?.date;
@@ -91,6 +106,7 @@ export async function POST() {
           continue;
         }
         if (!start || !end) continue;
+        if (event.status !== "cancelled") liveEventIds.add(event.id);
 
         const raw = {
           recurringEventId: event.recurringEventId,
@@ -120,6 +136,24 @@ export async function POST() {
           .eq("connection_id", connection.id)
           .eq("external_calendar_id", calendarId)
           .in("external_event_id", [...recurringMasterIds]);
+      }
+      const { data: storedRows } = await db!.from("external_calendar_events")
+        .select("id,external_event_id")
+        .eq("user_id", user.id)
+        .eq("connection_id", connection.id)
+        .eq("external_calendar_id", calendarId)
+        .is("deleted_at", null)
+        .lt("starts_at", timeMax)
+        .gt("ends_at", timeMin);
+      const staleRowIds = (storedRows ?? [])
+        .filter((row) => !liveEventIds.has(row.external_event_id))
+        .map((row) => row.id);
+      const deletedAt = new Date().toISOString();
+      for (let offset = 0; offset < staleRowIds.length; offset += 500) {
+        await db!.from("external_calendar_events")
+          .update({ status: "cancelled", deleted_at: deletedAt })
+          .eq("user_id", user.id)
+          .in("id", staleRowIds.slice(offset, offset + 500));
       }
     }
 
