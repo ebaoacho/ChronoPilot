@@ -91,3 +91,12 @@ export const routeEstimateRequestSchema = z.object({
   destination: z.string().trim().min(1).max(300),
   mode: z.enum(["DRIVE", "WALK", "BICYCLE", "TRANSIT"]).default("TRANSIT")
 });
+
+export const onboardingSettingsSchema = z.object({
+  targetSleepMinutes: z.number().int().min(300).max(720),
+  morningPrepMinutes: z.number().int().min(10).max(240),
+  defaultTravelMinutes: z.number().int().min(0).max(360),
+  weekdayGameMinutes: z.number().int().min(0).max(480),
+  holidayGameMinutes: z.number().int().min(0).max(720),
+  engineerVision: z.string().trim().min(1).max(1000)
+});
