@@ -12,7 +12,7 @@ export type OnboardingInitialValues = {
   engineerVision: string;
 };
 
-const defaults: OnboardingInitialValues = {
+export const defaultOnboardingValues: OnboardingInitialValues = {
   targetSleepMinutes: 420,
   morningPrepMinutes: 52,
   defaultTravelMinutes: 30,
@@ -21,7 +21,7 @@ const defaults: OnboardingInitialValues = {
   engineerVision: "大規模なAIサービスを設計し、継続的に価値を届けられるエンジニア"
 };
 
-export function Onboarding({ show, initial = defaults }: { show: boolean; initial?: OnboardingInitialValues }) {
+export function Onboarding({ show, initial = defaultOnboardingValues }: { show: boolean; initial?: OnboardingInitialValues }) {
   const router = useRouter();
   const [open, setOpen] = useState(show);
   const [busy, setBusy] = useState(false);

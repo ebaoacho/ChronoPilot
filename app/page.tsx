@@ -1,5 +1,5 @@
 import { Dashboard } from "@/components/dashboard";
-import { Onboarding, type OnboardingInitialValues } from "@/components/onboarding";
+import { Onboarding, defaultOnboardingValues, type OnboardingInitialValues } from "@/components/onboarding";
 import { createSupabaseServer, requireUser } from "@/lib/supabase/server";
 
 export default async function Home() {
@@ -39,5 +39,5 @@ export default async function Home() {
     };
   }
 
-  return <><Dashboard demo={user.demo} email={user.email}/><Onboarding show={onboarding} initial={initial}/></>;
+  return <><Dashboard demo={user.demo} email={user.email} settings={initial ?? defaultOnboardingValues}/><Onboarding show={onboarding} initial={initial}/></>;
 }
