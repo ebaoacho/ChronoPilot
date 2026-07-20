@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { OpenAiPlanningProvider } from "@/lib/ai/provider";
 import { createFallbackGoalDecomposition, scheduleGoalWork, type BusyInterval } from "@/lib/domain/goal-planner";
 import { createRecurringPlan, isRecurringScheduleText } from "@/lib/domain/recurring-planner";
+import { createFlexibleEventPlan, isFlexibleEventRequest } from "@/lib/domain/flexible-event-planner";
 import { createMorningRoutinePlan, fallbackMorningRoutine, isMorningRoutineRequest } from "@/lib/domain/morning-routine-planner";
 import { createSleepSchedulePlan, isSleepScheduleRequest } from "@/lib/domain/sleep-schedule-planner";
 import { goalDecompositionSchema, goalPlanningRequestSchema } from "@/lib/domain/schemas";
@@ -86,6 +87,20 @@ export async function POST(request: Request) {
         recurrenceLabel: recurring.recurrenceLabel, unscheduled: [], warnings,
         assumptions: recurring.assumptions, aiMode: "hybrid",
         calendarConnected: Boolean(connection), writeMode: connection?.write_mode ?? "confirm"
+      });
+    }
+
+    if (isFlexibleEventRequest(input.text)) {
+      const proposalId = crypto.randomUUID();
+      const plan = createFlexibleEventPlan({
+        proposalId, text: input.text, now, timezoneOffsetMinutes: input.timezoneOffsetMinutes,
+        preferredStartHour: Math.max(input.workdayStartHour, 9), preferredEndHour: Math.min(input.workdayEndHour, 19), busy
+      });
+      if (plan.unscheduled.length) warnings.push("指定された候補日に空き時間が見つかりませんでした。日付や時間帯を変えて再度お試しください。");
+      return NextResponse.json({
+        proposalId, proposalType: "goal", proposalKind: "flexible_event", goalTitle: plan.title, summary: plan.summary,
+        deadlineAt: horizonEnd.toISOString(), blocks: plan.scheduled, unscheduled: plan.unscheduled, warnings,
+        assumptions: plan.assumptions, aiMode: "hybrid", calendarConnected: Boolean(connection), writeMode: connection?.write_mode ?? "confirm"
       });
     }
 
