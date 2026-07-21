@@ -38,4 +38,17 @@ describe("recurring natural-language planning", () => {
     expect(smoking?.startsAt).toBe("2026-07-20T00:45:00.000Z");
     expect(smoking?.endsAt).toBe("2026-07-20T00:55:00.000Z");
   });
+
+  it("treats a bare 'N時まで' end-time phrase as an end bound, not a start time", () => {
+    const text = "大学での作業は毎日19時までは必須にしたいです。ただ、会議が入っている場合などは、学校で受けたいため、その場合は19時以降に帰宅することになります。大学での集中時間と帰宅の時間をカレンダーに追記してください";
+    expect(isRecurringScheduleText(text)).toBe(true);
+    const plan = createRecurringPlan({ text, now: new Date("2026-07-19T08:00:00.000Z"), horizonDays: 7, timezoneOffsetMinutes: -540, timeZone: "Asia/Tokyo", proposalId: "f90f6fa5-3ef8-4eed-9c2d-3db0203bc513" });
+    const work = plan.series.find((item) => item.title === "大学で集中作業");
+    expect(work?.startsAt).toBe("2026-07-20T00:00:00.000Z");
+    expect(work?.endsAt).toBe("2026-07-20T10:00:00.000Z");
+    const homecoming = plan.series.find((item) => item.title === "帰宅");
+    expect(homecoming?.startsAt).toBe("2026-07-20T10:00:00.000Z");
+    expect(plan.assumptions.some((note) => note.includes("09:00開始と仮定"))).toBe(true);
+    expect(plan.assumptions.some((note) => note.includes("自動では調整されません"))).toBe(true);
+  });
 });
