@@ -1,10 +1,41 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { deleteGoogleEvent, getGoogleAccessToken, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
+import { deleteGoogleEvent, getGoogleAccessToken, updateGoogleEvent, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
 import { resolveGoogleDeleteTarget } from "@/lib/domain/calendar-delete";
+import { calendarUpdateEventSchema } from "@/lib/domain/schemas";
 import { createSupabaseServer, requireUser } from "@/lib/supabase/server";
 
 const inputSchema = z.object({ scope: z.enum(["single", "series"]).default("single") });
+
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const user = await requireUser();
+    if (user.demo) throw new Error("Google Calendar接続が必要です");
+    const { id } = await params;
+    const input = calendarUpdateEventSchema.parse(await request.json());
+    const db = await createSupabaseServer();
+    const { data: event, error } = await db!.from("external_calendar_events")
+      .select("id,connection_id,external_calendar_id,external_event_id,title,starts_at,ends_at")
+      .eq("id", id).eq("user_id", user.id).is("deleted_at", null).single();
+    if (error || !event) throw new Error("変更対象の予定が見つかりません");
+    const { data: connection, error: connectionError } = await db!.from("calendar_connections")
+      .select("id,encrypted_refresh_token,selected_calendar_ids,write_mode")
+      .eq("id", event.connection_id).eq("user_id", user.id).single();
+    if (connectionError || !connection) throw new Error("Google Calendar接続が見つかりません");
+    if ((connection as GoogleCalendarConnection).write_mode === "readonly") return NextResponse.json({ error: "Calendar設定が読み取り専用です" }, { status: 403 });
+    const accessToken = await getGoogleAccessToken(connection as GoogleCalendarConnection);
+    const updated = await updateGoogleEvent({ accessToken, calendarId: event.external_calendar_id, eventId: event.external_event_id, title: input.title, startsAt: input.startsAt, endsAt: input.endsAt });
+    const { error: updateError } = await db!.from("external_calendar_events").update({
+      title: updated.summary ?? input.title ?? event.title,
+      starts_at: updated.start?.dateTime ?? input.startsAt ?? event.starts_at,
+      ends_at: updated.end?.dateTime ?? input.endsAt ?? event.ends_at
+    }).eq("id", event.id).eq("user_id", user.id);
+    if (updateError) throw new Error("Googleは更新しましたが、同期記録に失敗しました");
+    return NextResponse.json({ id: event.id, title: updated.summary ?? event.title, startsAt: updated.start?.dateTime, endsAt: updated.end?.dateTime });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "予定を変更できませんでした" }, { status: 400 });
+  }
+}
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {

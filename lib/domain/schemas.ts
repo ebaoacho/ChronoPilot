@@ -208,6 +208,62 @@ export const lifeCoachStructuredResultSchema = z.object({
   }).nullable()
 });
 
+// OpenAI strict structured output requires every property to be present.
+// Nullable fields are normalized to app-facing optional fields after parsing.
+export const roughPlanItemStructuredSchema = z.object({
+  action: z.enum(["create_fixed", "create_flexible", "update", "delete"]),
+  title: z.string().trim().min(1).max(200),
+  reason: z.string().trim().min(1).max(500),
+  // create_fixed: an explicit date/time was stated, so the AI translates it to ISO (no time math).
+  startsAt: z.string().datetime().nullable(),
+  endsAt: z.string().datetime().nullable(),
+  location: z.string().trim().max(300).nullable(),
+  // create_flexible: no explicit time. The app places this deterministically into a real gap.
+  estimateMinutes: z.number().int().min(5).max(600).nullable(),
+  deadlineAt: z.string().datetime().nullable(),
+  preferredTimeOfDay: z.enum(["morning", "afternoon", "evening", "any"]).nullable(),
+  priority: z.number().int().min(1).max(4).nullable(),
+  // update / delete: only a hint. The app matches this against real calendar events itself.
+  targetTitleHint: z.string().trim().max(200).nullable(),
+  targetDateHint: z.string().datetime().nullable(),
+  newStartsAt: z.string().datetime().nullable(),
+  newEndsAt: z.string().datetime().nullable()
+});
+
+export const roughPlanStructuredSchema = z.object({
+  items: z.array(roughPlanItemStructuredSchema).min(1).max(20),
+  summary: z.string().trim().min(1).max(500)
+});
+
+export const roughPlanItemSchema = z.object({
+  action: z.enum(["create_fixed", "create_flexible", "update", "delete"]),
+  title: z.string().trim().min(1).max(200),
+  reason: z.string().trim().min(1).max(500),
+  startsAt: z.string().datetime().optional(),
+  endsAt: z.string().datetime().optional(),
+  location: z.string().trim().max(300).optional(),
+  estimateMinutes: z.number().int().min(5).max(600).optional(),
+  deadlineAt: z.string().datetime().optional(),
+  preferredTimeOfDay: z.enum(["morning", "afternoon", "evening", "any"]).optional(),
+  priority: z.number().int().min(1).max(4).optional(),
+  targetTitleHint: z.string().trim().max(200).optional(),
+  targetDateHint: z.string().datetime().optional(),
+  newStartsAt: z.string().datetime().optional(),
+  newEndsAt: z.string().datetime().optional()
+});
+
+export const roughPlanResultSchema = z.object({
+  items: z.array(roughPlanItemSchema).min(1).max(20),
+  summary: z.string().trim().min(1).max(500)
+});
+
+export const calendarUpdateEventSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  startsAt: z.string().datetime().optional(),
+  endsAt: z.string().datetime().optional()
+}).refine((value) => Boolean(value.title || value.startsAt || value.endsAt), "変更内容がありません")
+  .refine((value) => !value.startsAt || !value.endsAt || new Date(value.endsAt) > new Date(value.startsAt), "終了時刻を確認してください");
+
 export const planBlockCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
   kind: z.enum(["event", "task", "travel"]).default("event"),

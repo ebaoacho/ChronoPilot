@@ -1,13 +1,14 @@
 import OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { z } from "zod";
-import { dailyPlanResultSchema, goalDecompositionSchema, lifeCoachResultSchema, lifeCoachStructuredResultSchema, morningRoutineSuggestionSchema, naturalAddResultSchema } from "@/lib/domain/schemas";
+import { dailyPlanResultSchema, goalDecompositionSchema, lifeCoachResultSchema, lifeCoachStructuredResultSchema, morningRoutineSuggestionSchema, naturalAddResultSchema, roughPlanResultSchema, roughPlanStructuredSchema } from "@/lib/domain/schemas";
 import type { LifeCoachInput, LifeCoachResult } from "@/lib/domain/life-coach";
 import type { GoalDecomposition } from "@/lib/domain/goal-planner";
 
 export type DailyPlanResult = z.infer<typeof dailyPlanResultSchema>;
 export type NaturalAddResult = z.infer<typeof naturalAddResultSchema>;
 export type MorningRoutineSuggestion = z.infer<typeof morningRoutineSuggestionSchema>;
+export type RoughPlanResult = z.infer<typeof roughPlanResultSchema>;
 export type LifeCoachAiInput = LifeCoachInput & { deterministicContext: LifeCoachResult };
 export interface AiPlanningProvider {
   generateDailyPlan(input: unknown): Promise<DailyPlanResult>;
@@ -22,6 +23,10 @@ export interface AiPlanningProvider {
   chatLifeCoach(input: LifeCoachAiInput): Promise<LifeCoachResult>;
   decomposeGoal(input: { text: string; now: string; deadlineAt?: string; timezone: string }): Promise<GoalDecomposition>;
   suggestMorningRoutine(input: { text: string; morningPrepMinutes: number; targetSleepMinutes: number; timezone: string }): Promise<MorningRoutineSuggestion>;
+  decomposeRoughPlan(input: {
+    text: string; now: string; timezone: string;
+    settings: { targetSleepMinutes: number; morningPrepMinutes: number; defaultTravelMinutes: number; weekdayGameMinutes: number; holidayGameMinutes: number; engineerVision: string };
+  }): Promise<RoughPlanResult>;
 }
 
 async function structured<T>(schema: z.ZodType<T>, system: string, input: unknown): Promise<T> {
@@ -66,6 +71,72 @@ Return only routine step names, durations, and short reasons. Do not choose time
 Keep the combined duration close to morningPrepMinutes. Include hydration, light exposure or gentle movement, basic preparation, and a short daily-priority check when appropriate.
 Do not make medical claims or invent user preferences. Avoid guilt, productivity pressure, and excessive steps.`, input);
   }
+  decomposeRoughPlan(input: {
+    text: string; now: string; timezone: string;
+    settings: { targetSleepMinutes: number; morningPrepMinutes: number; defaultTravelMinutes: number; weekdayGameMinutes: number; holidayGameMinutes: number; engineerVision: string };
+  }) {
+    return structuredRoughPlan(input);
+  }
+}
+
+async function structuredRoughPlan(input: {
+  text: string; now: string; timezone: string;
+  settings: { targetSleepMinutes: number; morningPrepMinutes: number; defaultTravelMinutes: number; weekdayGameMinutes: number; holidayGameMinutes: number; engineerVision: string };
+}): Promise<RoughPlanResult> {
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, baseURL: process.env.OPENAI_BASE_URL || undefined });
+  const system = `You are ChronoPilot's scheduling brain: another version of the user who is excellent at time management, reading a rough, hastily-written Japanese (or English) brain dump of plans.
+
+CRITICAL: extract every distinct request in the text, in the order it appears, including ones mentioned at the very end or after a line break. A message with N separate sentences or lines each describing a different plan must usually produce N items. Never stop early and never silently merge two unrelated requests into one item.
+
+Classify each item's action:
+- "create_fixed": the user gave an explicit date/time (e.g. "明日14時", "7/30", "来週火曜の朝"). Resolve it to a concrete ISO startsAt/endsAt using the supplied now and timezone. This is translation of an explicit statement, not invention.
+- "create_flexible": the user wants something scheduled but did not give an explicit time (e.g. "資料を作らないと", "運動したい"). Leave startsAt/endsAt null; instead fill estimateMinutes (your best realistic guess if not stated), optional deadlineAt, and preferredTimeOfDay if implied. Never guess a clock time yourself for this case; the application places it into a real free gap deterministically.
+- "update": the user wants to change an existing calendar entry's time (e.g. "3時のMTGを4時に変更して"). Fill targetTitleHint/targetDateHint describing the existing event well enough to find it, and newStartsAt/newEndsAt for the requested new time. Do not claim to know the event's current exact time yourself; the application looks up the real event.
+- "delete": the user wants to cancel/remove an existing entry (e.g. "来週の飲み会はキャンセルして"). Fill targetTitleHint/targetDateHint only.
+
+Never invent facts, organization names, or appointments not present in the request. Write "reason" in natural, warm Japanese in the voice of a time-management-savvy version of the user, referencing their profile only loosely (target sleep ${input.settings.targetSleepMinutes}min, morning prep ${input.settings.morningPrepMinutes}min, usual travel ${input.settings.defaultTravelMinutes}min, weekday/holiday game time ${input.settings.weekdayGameMinutes}/${input.settings.holidayGameMinutes}min, engineer goal: ${input.settings.engineerVision}) when relevant -- never invent preferences beyond this profile. Do not choose free-time math or check for conflicts yourself; the application does that deterministically.`;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (attempt === 0) {
+        const response = await client.chat.completions.parse({
+          model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+          temperature: 0.2,
+          response_format: zodResponseFormat(roughPlanStructuredSchema, "chronopilot_rough_plan"),
+          messages: [{ role: "system", content: system }, { role: "user", content: JSON.stringify({ text: input.text, now: input.now, timezone: input.timezone }) }]
+        });
+        const result = response.choices[0]?.message.parsed;
+        if (!result) throw new Error("AI returned no structured result");
+        return roughPlanResultSchema.parse({
+          ...result,
+          items: result.items.map((item) => ({
+            ...item,
+            startsAt: item.startsAt ?? undefined, endsAt: item.endsAt ?? undefined, location: item.location ?? undefined,
+            estimateMinutes: item.estimateMinutes ?? undefined, deadlineAt: item.deadlineAt ?? undefined,
+            preferredTimeOfDay: item.preferredTimeOfDay ?? undefined, priority: item.priority ?? undefined,
+            targetTitleHint: item.targetTitleHint ?? undefined, targetDateHint: item.targetDateHint ?? undefined,
+            newStartsAt: item.newStartsAt ?? undefined, newEndsAt: item.newEndsAt ?? undefined
+          }))
+        });
+      }
+      // Compatibility fallback for providers that implement JSON mode but not OpenAI strict schemas.
+      const response = await client.chat.completions.create({
+        model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [{ role: "system", content: `${system}\nReturn one JSON object with: items (array), summary. Use null for unset optional fields.` }, { role: "user", content: JSON.stringify({ text: input.text, now: input.now, timezone: input.timezone }) }]
+      });
+      const raw = JSON.parse(response.choices[0]?.message.content || "{}") as { items?: unknown[]; summary?: string };
+      return roughPlanResultSchema.parse({
+        summary: raw.summary ?? "",
+        items: (raw.items ?? []).map((item) => {
+          const value = (item ?? {}) as Record<string, unknown>;
+          return Object.fromEntries(Object.entries(value).map(([key, v]) => [key, v ?? undefined]));
+        })
+      });
+    } catch (error) { lastError = error; }
+  }
+  throw lastError;
 }
 
 async function structuredLifeCoach(input: LifeCoachAiInput): Promise<LifeCoachResult> {

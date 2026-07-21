@@ -69,6 +69,30 @@ export async function deleteGoogleEvent(accessToken: string, calendarId: string,
   if (!response.ok) throw new Error(`Google Calendarから削除できませんでした (${response.status})`);
 }
 
+export async function updateGoogleEvent(input: {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+  title?: string;
+  startsAt?: string;
+  endsAt?: string;
+}) {
+  const body: Record<string, unknown> = {};
+  if (input.title) body.summary = input.title;
+  if (input.startsAt) body.start = { dateTime: input.startsAt };
+  if (input.endsAt) body.end = { dateTime: input.endsAt };
+  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(input.calendarId)}/events/${encodeURIComponent(input.eventId)}?sendUpdates=none`, {
+    method: "PATCH",
+    headers: { authorization: `Bearer ${input.accessToken}`, "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Google Calendarを更新できませんでした (${response.status}): ${text.slice(0, 160)}`);
+  }
+  return response.json() as Promise<GoogleInsertedEvent>;
+}
+
 export async function insertGooglePlanBlock(input: {
   accessToken: string;
   calendarId: string;

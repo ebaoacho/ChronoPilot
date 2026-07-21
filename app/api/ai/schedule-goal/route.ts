@@ -5,6 +5,7 @@ import { createRecurringPlan, isRecurringScheduleText } from "@/lib/domain/recur
 import { createFlexibleEventPlan, isFlexibleEventRequest } from "@/lib/domain/flexible-event-planner";
 import { createMorningRoutinePlan, fallbackMorningRoutine, isMorningRoutineRequest } from "@/lib/domain/morning-routine-planner";
 import { createSleepSchedulePlan, isSleepScheduleRequest } from "@/lib/domain/sleep-schedule-planner";
+import { buildRoughPlanResponse, type ExistingEventCandidate } from "@/lib/domain/rough-plan";
 import { goalDecompositionSchema, goalPlanningRequestSchema } from "@/lib/domain/schemas";
 import { getGoogleAccessToken, listGoogleBusy, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
 import { createSupabaseServer, requireUser } from "@/lib/supabase/server";
@@ -21,15 +22,27 @@ export async function POST(request: Request) {
     const warnings: string[] = [];
     let targetSleepMinutes = 420;
     let morningPrepMinutes = 52;
+    let defaultTravelMinutes = 30;
+    let weekdayGameMinutes = 90;
+    let holidayGameMinutes = 150;
+    let engineerVision = "大規模なAIサービスを設計し、継続的に価値を届けられるエンジニア";
 
     if (!user.demo && db) {
-      const [{ data: connectionData }, { data: planBlocks, error: planError }, { data: settings }] = await Promise.all([
+      const [{ data: connectionData }, { data: planBlocks, error: planError }, { data: settings }, { data: game }, { data: growth }] = await Promise.all([
         db.from("calendar_connections").select("id,encrypted_refresh_token,selected_calendar_ids,write_mode").eq("user_id", user.id).eq("provider", "google").maybeSingle(),
         db.from("plan_blocks").select("title,starts_at,ends_at").eq("user_id", user.id).lt("starts_at", horizonEnd.toISOString()).gt("ends_at", now.toISOString()),
-        db.from("user_settings").select("target_sleep_minutes,morning_prep_minutes").eq("user_id", user.id).maybeSingle()
+        db.from("user_settings").select("target_sleep_minutes,morning_prep_minutes,default_travel_minutes").eq("user_id", user.id).maybeSingle(),
+        db.from("game_preferences").select("data").eq("user_id", user.id).limit(1).maybeSingle(),
+        db.from("growth_goals").select("data").eq("user_id", user.id).eq("name", "目指すエンジニア像").limit(1).maybeSingle()
       ]);
       targetSleepMinutes = settings?.target_sleep_minutes ?? 420;
       morningPrepMinutes = settings?.morning_prep_minutes ?? 52;
+      defaultTravelMinutes = settings?.default_travel_minutes ?? 30;
+      const gameData = (game?.data ?? {}) as { weekdayMinutes?: number; holidayMinutes?: number };
+      const growthData = (growth?.data ?? {}) as { vision?: string };
+      weekdayGameMinutes = gameData.weekdayMinutes ?? 90;
+      holidayGameMinutes = gameData.holidayMinutes ?? 150;
+      engineerVision = growthData.vision ?? engineerVision;
       if (planError) warnings.push("ChronoPilot内の既存計画をすべて取得できませんでした。");
       busy.push(...(planBlocks ?? []).map((block) => ({ title: block.title, startsAt: block.starts_at, endsAt: block.ends_at })));
       connection = connectionData as GoogleCalendarConnection | null;
@@ -42,6 +55,41 @@ export async function POST(request: Request) {
           const { data: cachedEvents } = await db.from("external_calendar_events").select("title,starts_at,ends_at").eq("user_id", user.id).is("deleted_at", null).lt("starts_at", horizonEnd.toISOString()).gt("ends_at", now.toISOString());
           busy.push(...(cachedEvents ?? []).map((event) => ({ title: event.title, startsAt: event.starts_at, endsAt: event.ends_at })));
         }
+      }
+    }
+
+    // Prefer real AI understanding when a key is configured: it can extract every
+    // distinct item from a rough, multi-item brain dump (creates, updates, deletes)
+    // instead of the narrow single-pattern detectors below. Those detectors, and
+    // the fallback goal decomposition further down, remain exactly as-is and are
+    // used whenever AI is unavailable or its structured output fails validation.
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        const plan = await new OpenAiPlanningProvider().decomposeRoughPlan({
+          text: input.text, now: now.toISOString(), timezone: input.timezone,
+          settings: { targetSleepMinutes, morningPrepMinutes, defaultTravelMinutes, weekdayGameMinutes, holidayGameMinutes, engineerVision }
+        });
+        let existingEvents: ExistingEventCandidate[] = [];
+        if (!user.demo && db && plan.items.some((item) => item.action === "update" || item.action === "delete")) {
+          const { data: rows } = await db.from("external_calendar_events").select("id,title,starts_at,ends_at")
+            .eq("user_id", user.id).is("deleted_at", null).lt("starts_at", horizonEnd.toISOString()).gt("ends_at", now.toISOString());
+          existingEvents = (rows ?? []).map((row) => ({ id: row.id, title: row.title, startsAt: row.starts_at, endsAt: row.ends_at }));
+        }
+        const proposalId = crypto.randomUUID();
+        const result = buildRoughPlanResponse({
+          proposalId, plan, now, timezoneOffsetMinutes: input.timezoneOffsetMinutes,
+          workdayStartHour: input.workdayStartHour, workdayEndHour: input.workdayEndHour, horizonDays: input.horizonDays,
+          busy, existingEvents
+        });
+        if (result.unscheduled.length) warnings.push(`${result.unscheduled.length}件は無理のない空き時間に配置できませんでした。締切や希望時間帯を調整して再度お試しください。`);
+        return NextResponse.json({
+          proposalId, proposalType: "rough_plan", goalTitle: "AIが複数の項目を解釈しました", summary: result.summary,
+          deadlineAt: horizonEnd.toISOString(), blocks: result.creates, updates: result.updates, deletes: result.deletes,
+          unscheduled: result.unscheduled, warnings, assumptions: [], aiMode: "openai",
+          calendarConnected: Boolean(connection), writeMode: connection?.write_mode ?? "confirm"
+        });
+      } catch (error) {
+        warnings.push(error instanceof Error ? `AIの解釈を検証できなかったため、ルールベースの方式で処理しました（${error.message}）。` : "AIの解釈を検証できなかったため、ルールベースの方式で処理しました。");
       }
     }
 
