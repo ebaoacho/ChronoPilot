@@ -88,6 +88,23 @@ describe("computeDailyDerivedBlocks", () => {
     expect(result.notes).toEqual(["「帰宅」は1日分、既存の予定が見つからず提案できませんでした。"]);
   });
 
+  it("ignores personal/routine noise like sleep when picking that day's last obligation", () => {
+    const result = computeDailyDerivedBlocks({
+      proposalId, now: new Date("2026-07-20T01:00:00.000Z"), horizonDays: 2, timezoneOffsetMinutes: -540, defaultTravelMinutes: 30,
+      items: [{ title: "帰宅", reason: "毎日の帰宅時間を提案" }],
+      busy: [
+        { title: "睡眠", startsAt: "2026-07-19T14:00:00.000Z", endsAt: "2026-07-19T22:28:00.000Z" },
+        { title: "ゼミ", startsAt: "2026-07-20T08:00:00.000Z", endsAt: "2026-07-20T09:00:00.000Z" },
+        { title: "睡眠", startsAt: "2026-07-20T14:00:00.000Z", endsAt: "2026-07-20T22:28:00.000Z" }
+      ]
+    });
+    expect(result.scheduled).toHaveLength(1);
+    expect(result.scheduled[0].startsAt.slice(0, 10)).toBe("2026-07-20");
+    expect(result.scheduled[0].startsAt).toBe("2026-07-20T09:40:00.000Z");
+    expect(result.scheduled[0].reason).toContain("ゼミ");
+    expect(result.notes[0]).toContain("1日分");
+  });
+
   it("never proposes a homecoming time that has already passed today", () => {
     const result = computeDailyDerivedBlocks({
       proposalId, now: new Date("2026-07-20T12:00:00.000Z"), horizonDays: 1, timezoneOffsetMinutes: -540, defaultTravelMinutes: 30,

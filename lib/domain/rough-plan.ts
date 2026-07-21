@@ -157,14 +157,21 @@ export function placeFlexibleItems(input: {
 }
 
 const HOMECOMING_BUFFER_MINUTES = 10;
+// Personal/routine noise that must never be mistaken for "something I still
+// need to do at school/work before I can head home". A recurring sleep block
+// commonly ends in the early morning of the *next* calendar day, which would
+// otherwise get picked as that day's "last obligation" and produce a
+// homecoming time of a few minutes after waking up.
+const NON_OBLIGATION_KEYWORDS = /睡眠|就寝|起床|朝食|昼食|夕食|食事|休憩|自由時間|ゲーム|入浴|お風呂|風呂|身支度|帰宅/i;
 
 export type DailyDerivedItem = { title: string; reason: string; travelMinutes?: number };
 
 // Some requests ask the app to figure out a recurring daily value itself
 // (most commonly "what time should I go home each day") rather than
 // describing a single task. There is no anchor time to schedule against --
-// it must be derived, per day, from that day's actual last calendar
-// commitment. This never runs on an AI-guessed time; only real busy data.
+// it must be derived, per day, from that day's actual last real obligation
+// (class, lab, meeting, club, etc.), ignoring personal/routine noise like
+// sleep or meals. This never runs on an AI-guessed time; only real busy data.
 export function computeDailyDerivedBlocks(input: {
   proposalId: string;
   items: DailyDerivedItem[];
@@ -186,7 +193,7 @@ export function computeDailyDerivedBlocks(input: {
     let daysWithoutEvent = 0;
     for (let day = startDay; day < startDay + input.horizonDays; day++) {
       const { start, end } = localDayBounds(day);
-      const dayEvents = input.busy.filter((block) => new Date(block.startsAt).getTime() < end && new Date(block.endsAt).getTime() > start);
+      const dayEvents = input.busy.filter((block) => new Date(block.startsAt).getTime() < end && new Date(block.endsAt).getTime() > start && !NON_OBLIGATION_KEYWORDS.test(block.title ?? ""));
       const last = [...dayEvents].sort((a, b) => new Date(b.endsAt).getTime() - new Date(a.endsAt).getTime())[0];
       if (!last) { daysWithoutEvent += 1; continue; }
       const homecomingAt = new Date(last.endsAt).getTime() + travelMinutes * MINUTE + HOMECOMING_BUFFER_MINUTES * MINUTE;
