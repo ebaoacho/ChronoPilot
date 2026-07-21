@@ -156,6 +156,53 @@ export function placeFlexibleItems(input: {
   return { scheduled: scheduled.sort((a, b) => a.startsAt.localeCompare(b.startsAt)), unscheduled };
 }
 
+const HOMECOMING_BUFFER_MINUTES = 10;
+
+export type DailyDerivedItem = { title: string; reason: string; travelMinutes?: number };
+
+// Some requests ask the app to figure out a recurring daily value itself
+// (most commonly "what time should I go home each day") rather than
+// describing a single task. There is no anchor time to schedule against --
+// it must be derived, per day, from that day's actual last calendar
+// commitment. This never runs on an AI-guessed time; only real busy data.
+export function computeDailyDerivedBlocks(input: {
+  proposalId: string;
+  items: DailyDerivedItem[];
+  now: Date;
+  horizonDays: number;
+  timezoneOffsetMinutes: number;
+  busy: BusyInterval[];
+  defaultTravelMinutes: number;
+}): { scheduled: ScheduledSuggestion[]; notes: string[] } {
+  const scheduled: ScheduledSuggestion[] = [];
+  const notes: string[] = [];
+  const nowMs = input.now.getTime();
+  const localDayIndex = (timestamp: number) => Math.floor((timestamp - input.timezoneOffsetMinutes * MINUTE) / DAY);
+  const localDayBounds = (day: number) => ({ start: day * DAY + input.timezoneOffsetMinutes * MINUTE, end: (day + 1) * DAY + input.timezoneOffsetMinutes * MINUTE });
+  const startDay = localDayIndex(nowMs);
+
+  for (const item of input.items) {
+    const travelMinutes = item.travelMinutes ?? input.defaultTravelMinutes;
+    let daysWithoutEvent = 0;
+    for (let day = startDay; day < startDay + input.horizonDays; day++) {
+      const { start, end } = localDayBounds(day);
+      const dayEvents = input.busy.filter((block) => new Date(block.startsAt).getTime() < end && new Date(block.endsAt).getTime() > start);
+      const last = [...dayEvents].sort((a, b) => new Date(b.endsAt).getTime() - new Date(a.endsAt).getTime())[0];
+      if (!last) { daysWithoutEvent += 1; continue; }
+      const homecomingAt = new Date(last.endsAt).getTime() + travelMinutes * MINUTE + HOMECOMING_BUFFER_MINUTES * MINUTE;
+      if (homecomingAt <= nowMs) continue;
+      scheduled.push(scheduledSuggestionSchema.parse({
+        id: crypto.randomUUID(), proposalId: input.proposalId, title: item.title,
+        startsAt: new Date(homecomingAt).toISOString(), endsAt: new Date(homecomingAt + 5 * MINUTE).toISOString(),
+        reason: `「${last.title || "その日の最後の予定"}」終了後、移動${travelMinutes}分+余裕${HOMECOMING_BUFFER_MINUTES}分を見込んだ目安です。`,
+        kind: "event", source: "ai_suggestion"
+      }));
+    }
+    if (daysWithoutEvent > 0) notes.push(`「${item.title}」は${daysWithoutEvent}日分、既存の予定が見つからず提案できませんでした。`);
+  }
+  return { scheduled: scheduled.sort((a, b) => a.startsAt.localeCompare(b.startsAt)), notes };
+}
+
 export function buildRoughPlanResponse(input: {
   proposalId: string;
   plan: RoughPlanResult;
@@ -166,6 +213,7 @@ export function buildRoughPlanResponse(input: {
   horizonDays: number;
   busy: BusyInterval[];
   existingEvents: ExistingEventCandidate[];
+  defaultTravelMinutes: number;
 }) {
   const fixedCreates = input.plan.items
     .filter((item) => item.action === "create_fixed" && item.startsAt && item.endsAt && new Date(item.endsAt) > new Date(item.startsAt))
@@ -200,6 +248,14 @@ export function buildRoughPlanResponse(input: {
       return { title: item.title, reason: item.reason, ...match };
     });
 
-  const creates = [...fixedCreates, ...placement.scheduled].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-  return { creates, updates, deletes, unscheduled: placement.unscheduled, summary: input.plan.summary };
+  const dailyDerivedItems: DailyDerivedItem[] = input.plan.items
+    .filter((item) => item.action === "daily_derived")
+    .map((item) => ({ title: item.title, reason: item.reason, travelMinutes: item.travelMinutes }));
+  const derived = computeDailyDerivedBlocks({
+    proposalId: input.proposalId, items: dailyDerivedItems, now: input.now, horizonDays: input.horizonDays,
+    timezoneOffsetMinutes: input.timezoneOffsetMinutes, busy: input.busy, defaultTravelMinutes: input.defaultTravelMinutes
+  });
+
+  const creates = [...fixedCreates, ...placement.scheduled, ...derived.scheduled].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  return { creates, updates, deletes, unscheduled: placement.unscheduled, notes: derived.notes, summary: input.plan.summary };
 }

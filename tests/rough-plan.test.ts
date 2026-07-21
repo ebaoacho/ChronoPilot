@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRoughPlanResponse, matchExistingEvent, placeFlexibleItems, type ExistingEventCandidate } from "@/lib/domain/rough-plan";
+import { buildRoughPlanResponse, computeDailyDerivedBlocks, matchExistingEvent, placeFlexibleItems, type ExistingEventCandidate } from "@/lib/domain/rough-plan";
 import type { RoughPlanResult } from "@/lib/ai/provider";
 
 const proposalId = "f90f6fa5-3ef8-4eed-9c2d-3db0203bc513";
@@ -71,6 +71,33 @@ describe("placeFlexibleItems", () => {
   });
 });
 
+describe("computeDailyDerivedBlocks", () => {
+  it("derives a homecoming time per day from that day's actual last calendar event", () => {
+    const result = computeDailyDerivedBlocks({
+      proposalId, now: new Date("2026-07-20T01:00:00.000Z"), horizonDays: 3, timezoneOffsetMinutes: -540, defaultTravelMinutes: 30,
+      items: [{ title: "帰宅", reason: "毎日の帰宅時間を提案" }],
+      busy: [
+        { title: "仕事", startsAt: "2026-07-20T08:00:00.000Z", endsAt: "2026-07-20T09:00:00.000Z" },
+        { title: "会議", startsAt: "2026-07-21T09:00:00.000Z", endsAt: "2026-07-21T10:00:00.000Z" }
+      ]
+    });
+    expect(result.scheduled).toHaveLength(2);
+    expect(result.scheduled[0].startsAt).toBe("2026-07-20T09:40:00.000Z");
+    expect(result.scheduled[0].reason).toContain("仕事");
+    expect(result.scheduled[1].startsAt).toBe("2026-07-21T10:40:00.000Z");
+    expect(result.notes).toEqual(["「帰宅」は1日分、既存の予定が見つからず提案できませんでした。"]);
+  });
+
+  it("never proposes a homecoming time that has already passed today", () => {
+    const result = computeDailyDerivedBlocks({
+      proposalId, now: new Date("2026-07-20T12:00:00.000Z"), horizonDays: 1, timezoneOffsetMinutes: -540, defaultTravelMinutes: 30,
+      items: [{ title: "帰宅", reason: "毎日の帰宅時間を提案" }],
+      busy: [{ title: "仕事", startsAt: "2026-07-20T08:00:00.000Z", endsAt: "2026-07-20T09:00:00.000Z" }]
+    });
+    expect(result.scheduled).toHaveLength(0);
+  });
+});
+
 describe("buildRoughPlanResponse", () => {
   it("combines fixed creates, placed flexible creates, matched updates, and unmatched deletes", () => {
     const plan: RoughPlanResult = {
@@ -85,7 +112,7 @@ describe("buildRoughPlanResponse", () => {
     const existingEvents: ExistingEventCandidate[] = [{ id: "evt-1", title: "田中さんとMTG", startsAt: "2026-07-27T04:00:00.000Z", endsAt: "2026-07-27T05:00:00.000Z" }];
     const result = buildRoughPlanResponse({
       proposalId, plan, now: new Date("2026-07-20T01:00:00.000Z"), timezoneOffsetMinutes: -540,
-      workdayStartHour: 9, workdayEndHour: 22, horizonDays: 14, busy: [], existingEvents
+      workdayStartHour: 9, workdayEndHour: 22, horizonDays: 14, busy: [], existingEvents, defaultTravelMinutes: 30
     });
     expect(result.creates.map((c) => c.title)).toEqual(["資料作成", "歯医者"]);
     expect(result.updates).toHaveLength(1);

@@ -211,7 +211,7 @@ export const lifeCoachStructuredResultSchema = z.object({
 // OpenAI strict structured output requires every property to be present.
 // Nullable fields are normalized to app-facing optional fields after parsing.
 export const roughPlanItemStructuredSchema = z.object({
-  action: z.enum(["create_fixed", "create_flexible", "update", "delete"]),
+  action: z.enum(["create_fixed", "create_flexible", "update", "delete", "daily_derived"]),
   title: z.string().trim().min(1).max(200),
   reason: z.string().trim().min(1).max(500),
   // create_fixed: an explicit date/time was stated, so the AI translates it to ISO (no time math).
@@ -227,7 +227,10 @@ export const roughPlanItemStructuredSchema = z.object({
   targetTitleHint: z.string().trim().max(200).nullable(),
   targetDateHint: z.string().datetime().nullable(),
   newStartsAt: z.string().datetime().nullable(),
-  newEndsAt: z.string().datetime().nullable()
+  newEndsAt: z.string().datetime().nullable(),
+  // daily_derived: no time math from the AI at all. The app computes each day's
+  // value from that day's real last calendar commitment plus this travel margin.
+  travelMinutes: z.number().int().min(0).max(240).nullable()
 });
 
 export const roughPlanStructuredSchema = z.object({
@@ -236,7 +239,7 @@ export const roughPlanStructuredSchema = z.object({
 });
 
 export const roughPlanItemSchema = z.object({
-  action: z.enum(["create_fixed", "create_flexible", "update", "delete"]),
+  action: z.enum(["create_fixed", "create_flexible", "update", "delete", "daily_derived"]),
   title: z.string().trim().min(1).max(200),
   reason: z.string().trim().min(1).max(500),
   startsAt: z.string().datetime().optional(),
@@ -249,7 +252,8 @@ export const roughPlanItemSchema = z.object({
   targetTitleHint: z.string().trim().max(200).optional(),
   targetDateHint: z.string().datetime().optional(),
   newStartsAt: z.string().datetime().optional(),
-  newEndsAt: z.string().datetime().optional()
+  newEndsAt: z.string().datetime().optional(),
+  travelMinutes: z.number().int().min(0).max(240).optional()
 });
 
 export const roughPlanResultSchema = z.object({

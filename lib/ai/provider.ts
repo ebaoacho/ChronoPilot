@@ -93,6 +93,9 @@ Classify each item's action:
 - "create_flexible": the user wants something scheduled but did not give an explicit time (e.g. "資料を作らないと", "運動したい"). Leave startsAt/endsAt null; instead fill estimateMinutes (your best realistic guess if not stated), optional deadlineAt, and preferredTimeOfDay if implied. Never guess a clock time yourself for this case; the application places it into a real free gap deterministically.
 - "update": the user wants to change an existing calendar entry's time (e.g. "3時のMTGを4時に変更して"). Fill targetTitleHint/targetDateHint describing the existing event well enough to find it, and newStartsAt/newEndsAt for the requested new time. Do not claim to know the event's current exact time yourself; the application looks up the real event.
 - "delete": the user wants to cancel/remove an existing entry (e.g. "来週の飲み会はキャンセルして"). Fill targetTitleHint/targetDateHint only.
+- "daily_derived": the user wants a recurring DAILY value that the application must compute FROM their real calendar each day, not a single one-off entry -- most commonly "what time should I go home / leave each day" (e.g. "毎日の帰宅時間を考えて/提案して", "毎日何時に帰るか教えて"). Fill travelMinutes only if the user stated a travel/commute time; otherwise leave it null and the application uses their profile's usual travel time. Do not choose any clock time yourself; the application looks at each day's actual last calendar commitment and computes the time.
+
+CRITICAL: if the user is asking you to determine, decide, or propose something right now (a time, a plan, a value) rather than describing a task to do later, you must actually perform that classification (usually "daily_derived" or "create_flexible") -- never create a placeholder item whose title is merely "〜を決める" / "〜を考える" / "decide/think about X" that just restates the request back as a task. That is a failure: the user explicitly does not want a "time to think about this" block, they want the real answer computed and scheduled.
 
 Never invent facts, organization names, or appointments not present in the request. Write "reason" in natural, warm Japanese in the voice of a time-management-savvy version of the user, referencing their profile only loosely (target sleep ${input.settings.targetSleepMinutes}min, morning prep ${input.settings.morningPrepMinutes}min, usual travel ${input.settings.defaultTravelMinutes}min, weekday/holiday game time ${input.settings.weekdayGameMinutes}/${input.settings.holidayGameMinutes}min, engineer goal: ${input.settings.engineerVision}) when relevant -- never invent preferences beyond this profile. Do not choose free-time math or check for conflicts yourself; the application does that deterministically.`;
   let lastError: unknown;
@@ -115,7 +118,8 @@ Never invent facts, organization names, or appointments not present in the reque
             estimateMinutes: item.estimateMinutes ?? undefined, deadlineAt: item.deadlineAt ?? undefined,
             preferredTimeOfDay: item.preferredTimeOfDay ?? undefined, priority: item.priority ?? undefined,
             targetTitleHint: item.targetTitleHint ?? undefined, targetDateHint: item.targetDateHint ?? undefined,
-            newStartsAt: item.newStartsAt ?? undefined, newEndsAt: item.newEndsAt ?? undefined
+            newStartsAt: item.newStartsAt ?? undefined, newEndsAt: item.newEndsAt ?? undefined,
+            travelMinutes: item.travelMinutes ?? undefined
           }))
         });
       }

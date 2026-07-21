@@ -79,9 +79,10 @@ export async function POST(request: Request) {
         const result = buildRoughPlanResponse({
           proposalId, plan, now, timezoneOffsetMinutes: input.timezoneOffsetMinutes,
           workdayStartHour: input.workdayStartHour, workdayEndHour: input.workdayEndHour, horizonDays: input.horizonDays,
-          busy, existingEvents
+          busy, existingEvents, defaultTravelMinutes
         });
         if (result.unscheduled.length) warnings.push(`${result.unscheduled.length}件は無理のない空き時間に配置できませんでした。締切や希望時間帯を調整して再度お試しください。`);
+        warnings.push(...result.notes);
         return NextResponse.json({
           proposalId, proposalType: "rough_plan", goalTitle: "AIが複数の項目を解釈しました", summary: result.summary,
           deadlineAt: horizonEnd.toISOString(), blocks: result.creates, updates: result.updates, deletes: result.deletes,
