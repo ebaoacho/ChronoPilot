@@ -1,8 +1,11 @@
 import { addDays, format } from "date-fns";
-import type { ScheduledSuggestion } from "@/lib/domain/goal-planner";
+import { scheduledSuggestionSchema } from "@/lib/domain/schemas";
+import type { BusyInterval, ScheduledSuggestion } from "@/lib/domain/goal-planner";
 
 const MINUTE = 60_000;
 const DAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
+const MEETING_KEYWORDS = /会議|ミーティング|MTG|打ち合わせ|面談/i;
+const HOMECOMING_BUFFER_MINUTES = 10;
 
 export type RecurringSeries = {
   id: string;
@@ -22,6 +25,9 @@ export type RecurringPlan = {
   summary: string;
   series: RecurringSeries[];
   blocks: ScheduledSuggestion[];
+  // Occurrences whose time varies day to day (e.g. homecoming shifted by that
+  // day's actual meetings) and so cannot be expressed as a single RRULE series.
+  standaloneBlocks?: ScheduledSuggestion[];
   assumptions: string[];
   recurrenceLabel: string;
 };
@@ -82,6 +88,38 @@ function cleanScheduleTitle(firstLine: string, location?: string) {
     .trim() || "定期予定";
 }
 
+// Homecoming time can vary day to day depending on whether a meeting runs
+// past the usual end time, so each occurrence is computed individually
+// against that day's real busy intervals instead of a single RRULE.
+function computeHomecomingBlocks(input: {
+  occurrenceDates: Date[];
+  clock: { hour: number; minute: number };
+  durationMinutes: number;
+  timezoneOffsetMinutes: number;
+  proposalId: string;
+  workTitle: string;
+  busy: BusyInterval[];
+}): ScheduledSuggestion[] {
+  return input.occurrenceDates.map((date) => {
+    const standardEnd = localTimestamp(date, input.clock.hour, input.clock.minute, input.timezoneOffsetMinutes) + input.durationMinutes * MINUTE;
+    const dayStart = localTimestamp(date, 0, 0, input.timezoneOffsetMinutes);
+    const dayEnd = dayStart + 24 * 60 * MINUTE;
+    const lateMeeting = input.busy
+      .filter((item) => MEETING_KEYWORDS.test(item.title ?? "")
+        && new Date(item.endsAt).getTime() > standardEnd
+        && new Date(item.startsAt).getTime() < dayEnd
+        && new Date(item.endsAt).getTime() > dayStart)
+      .sort((a, b) => new Date(b.endsAt).getTime() - new Date(a.endsAt).getTime())[0];
+    const homecomingAt = lateMeeting ? new Date(lateMeeting.endsAt).getTime() + HOMECOMING_BUFFER_MINUTES * MINUTE : standardEnd;
+    return scheduledSuggestionSchema.parse({
+      id: crypto.randomUUID(), proposalId: input.proposalId, title: "帰宅",
+      startsAt: new Date(homecomingAt).toISOString(), endsAt: new Date(homecomingAt + 5 * MINUTE).toISOString(),
+      reason: lateMeeting ? `「${lateMeeting.title}」終了後の帰宅予定` : `${input.workTitle}の終了時刻を目安にした帰宅予定`,
+      kind: "event", source: "ai_suggestion"
+    });
+  });
+}
+
 export function createRecurringPlan(input: {
   text: string;
   now: Date;
@@ -89,6 +127,7 @@ export function createRecurringPlan(input: {
   timezoneOffsetMinutes: number;
   timeZone: string;
   proposalId: string;
+  busy?: BusyInterval[];
 }): RecurringPlan {
   const startClock = startTimeMatch(input.text);
   const endClock = endTimeMatch(input.text);
@@ -154,10 +193,16 @@ export function createRecurringPlan(input: {
   const regularDays = mondayMeeting ? weekdays.filter((day) => day !== 1) : weekdays;
   addSeries({ title, kind: "event", startsAt: new Date(eventStart).toISOString(), endsAt: new Date(eventStart + durationMinutes * MINUTE).toISOString(), reason: "指定された繰り返し予定", location }, regularDays);
   if (mondayMeeting) addSeries({ title: "月曜MTG", kind: "event", startsAt: new Date(eventStart).toISOString(), endsAt: new Date(eventStart + 60 * MINUTE).toISOString(), reason: "月曜日10時の固定MTGを優先", location }, [1]);
+  let standaloneBlocks: ScheduledSuggestion[] = [];
   if (wantsHomecoming) {
-    const homecomingAt = eventStart + durationMinutes * MINUTE;
-    addSeries({ title: "帰宅", kind: "event", startsAt: new Date(homecomingAt).toISOString(), endsAt: new Date(homecomingAt + 5 * MINUTE).toISOString(), reason: `${title}の終了時刻を目安にした帰宅予定` }, weekdays);
-    assumptions.push("会議などで滞在が延びる日の帰宅時刻は自動では調整されません。該当日はこの帰宅予定を手動で移動してください。");
+    standaloneBlocks = computeHomecomingBlocks({
+      occurrenceDates, clock, durationMinutes, timezoneOffsetMinutes: input.timezoneOffsetMinutes,
+      proposalId: input.proposalId, workTitle: title, busy: input.busy ?? []
+    });
+    const shiftedCount = standaloneBlocks.filter((block) => block.reason.startsWith("「")).length;
+    assumptions.push(shiftedCount
+      ? `会議・ミーティングと重なる${shiftedCount}日は、その終了時刻に合わせて帰宅予定を後ろへずらしています。登録後に新しく会議を追加した場合は自動で反映されないため、手動で調整してください。`
+      : "現時点のカレンダーに該当する会議が見当たらないため、帰宅予定はすべて通常の終了時刻にしています。登録後に会議を追加した場合は自動で反映されないため、手動で調整してください。");
   }
 
   const blocks = occurrenceDates.flatMap((date) => {
@@ -180,7 +225,7 @@ export function createRecurringPlan(input: {
   const exception = mondayMeeting ? "月曜日は「月曜MTG」に置き換えます。" : "";
   const startLabel = `${String(clock.hour).padStart(2, "0")}:${String(clock.minute).padStart(2, "0")}`;
   const endLabel = endClock ? `${String(endClock.hour).padStart(2, "0")}:${String(endClock.minute).padStart(2, "0")}まで` : `${durationMinutes}分間`;
-  return { title, summary: `${recurrenceLabel} ${startLabel}から${endLabel}、${count}回の定期予定として提案します。${exception}`, series, blocks, assumptions, recurrenceLabel };
+  return { title, summary: `${recurrenceLabel} ${startLabel}から${endLabel}、${count}回の定期予定として提案します。${exception}`, series, blocks, standaloneBlocks, assumptions, recurrenceLabel };
 }
 
 export function recurringSeriesDescription(series: RecurringSeries) {

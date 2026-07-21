@@ -46,9 +46,27 @@ describe("recurring natural-language planning", () => {
     const work = plan.series.find((item) => item.title === "大学で集中作業");
     expect(work?.startsAt).toBe("2026-07-20T00:00:00.000Z");
     expect(work?.endsAt).toBe("2026-07-20T10:00:00.000Z");
-    const homecoming = plan.series.find((item) => item.title === "帰宅");
-    expect(homecoming?.startsAt).toBe("2026-07-20T10:00:00.000Z");
+    // "帰宅" varies per day depending on that day's meetings, so it can't be a
+    // single RRULE series -- it must come back as individually timed blocks.
+    expect(plan.series.find((item) => item.title === "帰宅")).toBeUndefined();
+    const homecomingDay1 = plan.standaloneBlocks?.find((block) => block.startsAt.startsWith("2026-07-20"));
+    expect(homecomingDay1?.startsAt).toBe("2026-07-20T10:00:00.000Z");
     expect(plan.assumptions.some((note) => note.includes("09:00開始と仮定"))).toBe(true);
-    expect(plan.assumptions.some((note) => note.includes("自動では調整されません"))).toBe(true);
+    expect(plan.assumptions.some((note) => note.includes("手動で調整"))).toBe(true);
+  });
+
+  it("shifts the homecoming block after a late meeting found in the real calendar", () => {
+    const text = "大学での作業は毎日19時までは必須にしたいです。ただ、会議が入っている場合などは、学校で受けたいため、その場合は19時以降に帰宅することになります。大学での集中時間と帰宅の時間をカレンダーに追記してください";
+    const plan = createRecurringPlan({
+      text, now: new Date("2026-07-19T08:00:00.000Z"), horizonDays: 7, timezoneOffsetMinutes: -540, timeZone: "Asia/Tokyo",
+      proposalId: "f90f6fa5-3ef8-4eed-9c2d-3db0203bc513",
+      busy: [{ title: "ゼミ会議", startsAt: "2026-07-21T11:00:00.000Z", endsAt: "2026-07-21T12:30:00.000Z" }]
+    });
+    const homecomingDay1 = plan.standaloneBlocks?.find((block) => block.startsAt.startsWith("2026-07-20"));
+    const homecomingDay2 = plan.standaloneBlocks?.find((block) => block.startsAt.startsWith("2026-07-21"));
+    expect(homecomingDay1?.startsAt).toBe("2026-07-20T10:00:00.000Z");
+    expect(homecomingDay2?.startsAt).toBe("2026-07-21T12:40:00.000Z");
+    expect(homecomingDay2?.reason).toContain("ゼミ会議");
+    expect(plan.assumptions.some((note) => note.includes("会議・ミーティングと重なる1日"))).toBe(true);
   });
 });

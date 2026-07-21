@@ -9,6 +9,7 @@ export type SuggestedBlock = { id: string; proposalId: string; title: string; st
 type RecurringSeries={id:string;title:string;kind:"event"|"task"|"travel"|"routine"|"sleep";startsAt:string;endsAt:string;reason:string;location?:string;recurrence:string;timeZone:string;weekdays:number[]};
 type Proposal = {
   proposalId: string; goalTitle: string; summary: string; deadlineAt: string; blocks: SuggestedBlock[];
+  standaloneBlocks?: SuggestedBlock[];
   unscheduled: Array<{ title: string; minutes: number }>; warnings: string[]; assumptions: string[];
   proposalType:"goal"|"recurring";proposalKind?:"morning_routine"|"sleep_schedule"|"flexible_event";series?:RecurringSeries[];recurrenceLabel?:string;
   aiMode: "openai" | "fallback"|"hybrid"; calendarConnected: boolean; writeMode: "confirm" | "today" | "all" | "readonly";
@@ -29,11 +30,12 @@ export function AiSchedulePlanner({ connected, onRegistered }: { connected: bool
     setRegistering(true); setMessage("");
     try {
       const recurring=value.proposalType==="recurring";
-      const response = await fetch(recurring?"/api/calendar/write-recurring":"/api/calendar/write-plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(recurring?{ proposalId: value.proposalId, series:value.series,blocks:value.blocks }:{ proposalId: value.proposalId, blocks: value.blocks }) });
+      const allBlocks=[...value.blocks,...(value.standaloneBlocks??[])];
+      const response = await fetch(recurring?"/api/calendar/write-recurring":"/api/calendar/write-plan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(recurring?{ proposalId: value.proposalId, series:value.series,blocks:value.blocks,standaloneBlocks:value.standaloneBlocks??[] }:{ proposalId: value.proposalId, blocks: value.blocks }) });
       const body = await response.json() as { registered?: Array<{ title: string }>; error?: string; conflicts?: unknown[] };
       if (!response.ok) throw new Error(body.error ?? "登録できませんでした");
       setMessage(recurring?`${body.registered?.length ?? 0}種類の定期予定をGoogle Calendarへ登録しました。`:`${body.registered?.length ?? 0}件をGoogle Calendarへ登録しました。`);
-      await onRegistered(value.blocks);
+      await onRegistered(allBlocks);
     } catch (error) { setMessage(error instanceof Error ? error.message : "登録できませんでした"); }
     finally { setRegistering(false); }
   }
@@ -53,7 +55,7 @@ export function AiSchedulePlanner({ connected, onRegistered }: { connected: bool
       const body = await response.json() as Proposal & { error?: string };
       if (!response.ok) throw new Error(body.error ?? "提案を作成できませんでした");
       setProposal(body);
-      if (autoRegister && body.calendarConnected && body.writeMode !== "readonly" && body.blocks.length) await registerPlan(body);
+      if (autoRegister && body.calendarConnected && body.writeMode !== "readonly" && (body.blocks.length || (body.standaloneBlocks?.length ?? 0))) await registerPlan(body);
     } catch (error) { setMessage(error instanceof Error ? error.message : "提案を作成できませんでした"); }
     finally { setLoading(false); }
   }
@@ -70,10 +72,10 @@ export function AiSchedulePlanner({ connected, onRegistered }: { connected: bool
     {message && <p role="status" className="planner-message">{message}</p>}
     {proposal && <div className="planner-result">
       <div><span className="pill">{proposal.proposalKind==="sleep_schedule"?"睡眠設定 + 起床からの逆算":proposal.proposalKind==="morning_routine"?(proposal.aiMode==="openai"?"AIルーティン提案 + 睡眠優先の時刻計算":"標準ルーティン + 睡眠優先の時刻計算"):proposal.proposalKind==="flexible_event"?"候補日から空き時間を自動選定":proposal.aiMode === "openai" ? "AI分解 + 時間計算" : proposal.aiMode==="hybrid"?"定期予定を認識 + 安全な時刻計算":"ルールベース分解 + 時間計算"}</span><h3>{proposal.goalTitle}</h3><p className="muted">{proposal.summary}</p>{proposal.recurrenceLabel&&<span className="pill">{proposal.recurrenceLabel}</span>}</div>
-      {proposal.blocks.length ? <><div className="planner-blocks">{proposal.blocks.slice(0,12).map((block) => <article key={block.id} className="planner-block"><div className="planner-date">{format(new Date(block.startsAt), "M/d (E)", { locale: ja })}</div><div><strong>{block.title}</strong><div>{format(new Date(block.startsAt), "H:mm")}–{format(new Date(block.endsAt), "H:mm")}</div><small className="muted">{block.reason}</small></div></article>)}</div>{proposal.blocks.length>12&&<p className="muted">ほか {proposal.blocks.length-12}件 · Google Calendarには期間内のすべてを定期予定として登録します。</p>}</> : <p>配置できる時間が見つかりませんでした。</p>}
+      {(() => { const previewBlocks=[...proposal.blocks,...(proposal.standaloneBlocks??[])].sort((a,b)=>a.startsAt.localeCompare(b.startsAt)); return previewBlocks.length ? <><div className="planner-blocks">{previewBlocks.slice(0,12).map((block) => <article key={block.id} className="planner-block"><div className="planner-date">{format(new Date(block.startsAt), "M/d (E)", { locale: ja })}</div><div><strong>{block.title}</strong><div>{format(new Date(block.startsAt), "H:mm")}–{format(new Date(block.endsAt), "H:mm")}</div><small className="muted">{block.reason}</small></div></article>)}</div>{previewBlocks.length>12&&<p className="muted">ほか {previewBlocks.length-12}件 · Google Calendarには期間内のすべてを登録します。</p>}</> : <p>配置できる時間が見つかりませんでした。</p>; })()}
       {[...proposal.warnings, ...proposal.assumptions].map((warning) => <p className="muted planner-note" key={warning}>※ {warning}</p>)}
       {proposal.unscheduled.map((item) => <p className="planner-note" key={`${item.title}-${item.minutes}`}>未配置：{item.title}（{item.minutes}分）</p>)}
-      {proposal.calendarConnected && proposal.writeMode !== "readonly" && proposal.blocks.length > 0 && !autoRegister && <button className="button" disabled={registering} onClick={() => void registerPlan(proposal)}><CalendarCheck size={18}/>{registering ? "登録中…" : "この提案をGoogle Calendarに登録"}</button>}
+      {proposal.calendarConnected && proposal.writeMode !== "readonly" && (proposal.blocks.length > 0 || (proposal.standaloneBlocks?.length ?? 0) > 0) && !autoRegister && <button className="button" disabled={registering} onClick={() => void registerPlan(proposal)}><CalendarCheck size={18}/>{registering ? "登録中…" : "この提案をGoogle Calendarに登録"}</button>}
       {proposal.writeMode === "readonly" && <p className="planner-note">Calendarが読み取り専用のため、提案だけ表示しています。</p>}
       {message.includes("登録しました") && <p className="planner-success"><Check size={17}/> 登録済み</p>}
     </div>}

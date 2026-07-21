@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { calendarWriteRecurringSchema } from "@/lib/domain/schemas";
-import { getGoogleAccessToken, getGoogleEvent, googleEventId, insertGoogleRecurringBlock, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
+import { getGoogleAccessToken, getGoogleEvent, googleEventId, insertGooglePlanBlock, insertGoogleRecurringBlock, type GoogleCalendarConnection } from "@/lib/integrations/google-calendar";
 import { createSupabaseServer, requireUser } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
@@ -28,10 +28,26 @@ export async function POST(request: Request) {
       if (eventError) throw new Error("Googleには登録しましたが、同期記録に失敗しました。再実行しても二重登録されません");
       registered.push({ id: event.id, title: event.summary ?? series.title, alreadyExisted: Boolean(prior) });
     }
-    const rows = input.blocks.map((block) => ({ id: block.id, user_id: user.id, title: block.title, kind: block.kind ?? "event", starts_at: block.startsAt, ends_at: block.endsAt, status: "planned", fixed: true, metadata: { proposalId: input.proposalId, source: "recurring_schedule", location: block.location } }));
-    const { error: blocksError } = await db!.from("plan_blocks").upsert(rows, { onConflict: "id" });
-    if (blocksError) throw new Error("Googleには登録しましたが、ChronoPilot計画の保存に失敗しました");
-    return NextResponse.json({ registered, proposalId: input.proposalId, occurrences: input.blocks.length, overlapPolicy: "allow" });
+    const standaloneRegistered: Array<{ id: string; title: string; alreadyExisted: boolean }> = [];
+    for (const block of input.standaloneBlocks) {
+      const eventId = googleEventId(user.id, input.proposalId, block.id);
+      const prior = await getGoogleEvent(accessToken, calendarId, eventId);
+      const event = prior ?? await insertGooglePlanBlock({ accessToken, calendarId, eventId, title: block.title, startsAt: block.startsAt, endsAt: block.endsAt, reason: block.reason, location: block.location, proposalId: input.proposalId, blockId: block.id });
+      const { error: eventError } = await db!.from("external_calendar_events").upsert({
+        user_id: user.id, connection_id: connection.id, external_calendar_id: calendarId, external_event_id: event.id,
+        etag: event.etag, title: event.summary ?? block.title, starts_at: event.start?.dateTime ?? block.startsAt, ends_at: event.end?.dateTime ?? block.endsAt,
+        location: block.location, status: event.status ?? "confirmed", raw: { chronopilotProposalId: input.proposalId, chronopilotBlockId: block.id }
+      }, { onConflict: "user_id,external_calendar_id,external_event_id" });
+      if (eventError) throw new Error("Googleには登録しましたが、同期記録に失敗しました。再実行しても二重登録されません");
+      standaloneRegistered.push({ id: event.id, title: event.summary ?? block.title, alreadyExisted: Boolean(prior) });
+    }
+
+    const rows = [...input.blocks, ...input.standaloneBlocks].map((block) => ({ id: block.id, user_id: user.id, title: block.title, kind: block.kind ?? "event", starts_at: block.startsAt, ends_at: block.endsAt, status: "planned", fixed: true, metadata: { proposalId: input.proposalId, source: "recurring_schedule", location: block.location } }));
+    if (rows.length) {
+      const { error: blocksError } = await db!.from("plan_blocks").upsert(rows, { onConflict: "id" });
+      if (blocksError) throw new Error("Googleには登録しましたが、ChronoPilot計画の保存に失敗しました");
+    }
+    return NextResponse.json({ registered: [...registered, ...standaloneRegistered], proposalId: input.proposalId, occurrences: input.blocks.length + input.standaloneBlocks.length, overlapPolicy: "allow" });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "定期予定を登録できませんでした" }, { status: 400 });
   }

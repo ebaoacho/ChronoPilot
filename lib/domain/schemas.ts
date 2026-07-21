@@ -160,9 +160,12 @@ export const recurringSeriesSchema = z.object({
 
 export const calendarWriteRecurringSchema = z.object({
   proposalId: z.string().uuid(),
-  series: z.array(recurringSeriesSchema).min(1).max(12),
-  blocks: z.array(scheduledSuggestionSchema).min(1).max(800)
-}).refine((value) => value.blocks.every((block) => block.proposalId === value.proposalId), "提案IDが一致しません");
+  series: z.array(recurringSeriesSchema).max(12).default([]),
+  blocks: z.array(scheduledSuggestionSchema).max(800).default([]),
+  standaloneBlocks: z.array(scheduledSuggestionSchema).max(60).default([])
+}).refine((value) => value.series.length + value.standaloneBlocks.length > 0, "登録できる予定がありません")
+  .refine((value) => value.blocks.every((block) => block.proposalId === value.proposalId), "提案IDが一致しません")
+  .refine((value) => value.standaloneBlocks.every((block) => block.proposalId === value.proposalId), "提案IDが一致しません");
 
 export const morningRoutineSuggestionSchema = z.object({
   title: z.string().trim().min(1).max(100).default("おすすめモーニングルーティン"),
