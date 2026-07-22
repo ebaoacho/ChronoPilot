@@ -67,7 +67,7 @@ export function Dashboard({demo,email,settings}:{demo:boolean;email:string;setti
     <main className="content">
       {toast&&<div role="status" className="card" style={{position:"fixed",zIndex:30,top:16,left:"50%",transform:"translateX(-50%)",padding:"12px 16px",width:"max-content",maxWidth:"90%"}}>{toast}</div>}
       {tab==="now"&&<NowView now={now} blocks={todayBlocks} reloadToday={()=>void today.reload()} onCalendarAdded={(block)=>addPlannerBlocks([block])} settings={settings} state={state} setState={setState} message={message} demo={demo}/>}
-      {tab==="today"&&<TodayView now={now} blocks={todayBlocks} connected={today.connected} loading={today.loading} tasks={state.tasks}/>}
+      {tab==="today"&&<TodayView now={now} blocks={todayBlocks} connected={today.connected} loading={today.loading}/>}
       {tab==="add"&&<AddView demo={demo} setState={setState} onRegistered={(blocks)=>addPlannerBlocks(blocks)} onDone={(destination="today")=>setTab(destination)} message={message}/>}
       {tab==="calendar"&&<CalendarView blocks={plannerBlocks} demo={demo} onPlanAdded={(suggestions)=>addPlannerBlocks(suggestions)} onPlanDeleted={(ids)=>{setPlannerBlocks(current=>current.filter(block=>!ids.includes(block.id)));void today.reload()}}/>}
       {tab==="more"&&<MoreView state={state} setState={setState} message={message} demo={demo}/>}
@@ -98,12 +98,11 @@ function NowView({now,blocks,reloadToday,onCalendarAdded,settings,state,setState
 function Metric({label,value}:{label:string;value:string}){return <div className="metric"><span className="muted">{label}</span><strong>{value}</strong></div>}
 function minutes(value:number){return value>=60?`${Math.floor(value/60)}時間${value%60?`${value%60}分`:""}`:`${value}分`}
 
-function TodayView({now,blocks,connected,loading,tasks}:{now:Date|null;blocks:PlanBlock[];connected:boolean;loading:boolean;tasks:TaskInput[]}){
+function TodayView({now,blocks,connected,loading}:{now:Date|null;blocks:PlanBlock[];connected:boolean;loading:boolean}){
   const sorted=useMemo(()=>[...blocks].sort((a,b)=>a.startsAt.localeCompare(b.startsAt)),[blocks]);
   const done=now?sorted.filter(b=>new Date(b.endsAt)<=now).length:0;
   return <><div className="eyebrow">{now?format(now,"M月d日 EEEE",{locale:ja}):"今日"}</div><div className="section-title"><h1 style={{margin:0}}>今日</h1><span className="pill">{sorted.length?`${done}/${sorted.length} 終了`:"予定なし"}</span></div>
     <div className="card timeline">{sorted.length?sorted.map(block=><div className="timeline-item" key={block.id}><small>{format(new Date(block.startsAt),"H:mm")}</small><span className={`timeline-line ${now&&new Date(block.startsAt)<=now&&now<new Date(block.endsAt)?"active":""}`}/><div><strong style={{textDecoration:now&&new Date(block.endsAt)<=now?"line-through":"none"}}>{block.title}</strong><div className="muted" style={{fontSize:13}}>{kindName(block.kind)} · {minutes(Math.max(0,(new Date(block.endsAt).getTime()-new Date(block.startsAt).getTime())/60000))}</div></div></div>):<p className="muted">{loading?"予定を読み込んでいます…":connected?"今日、Google Calendarに登録された予定はありません。":"Google Calendar未接続です。「その他」→「設定」から接続すると、実際の予定がここに表示されます。"}</p>}</div>
-    {tasks.length>0&&<section className="card"><div className="section-title" style={{marginTop:0}}><h2>未着手タスク</h2><span className="pill">{tasks.length}件</span></div><p className="muted" style={{fontSize:13}}>時刻はまだ決まっていません。時間に組み込みたい場合は「カレンダー」タブのAI予定提案からGoogle Calendarへ登録してください。</p>{tasks.map(t=><div className="task" key={t.id}><span style={{flex:1}}>{t.title}</span><span className="muted">{t.estimateMinutes}分</span>{t.required&&<span className="pill">必須</span>}</div>)}</section>}
     </> }
 function kindName(kind:PlanBlock["kind"]){return ({sleep:"睡眠",routine:"ルーティン",event:"予定",travel:"移動",task:"必須タスク",meal:"食事",break:"休憩",growth:"成長",game:"ゲーム",free:"自由時間"})[kind]}
 
