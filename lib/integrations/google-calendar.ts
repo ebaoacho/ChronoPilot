@@ -104,6 +104,7 @@ export async function insertGooglePlanBlock(input: {
   location?: string;
   proposalId: string;
   blockId: string;
+  derivedKind?: string;
 }) {
   const endpoint = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(input.calendarId)}/events?sendUpdates=none`;
   const response = await fetch(endpoint, {
@@ -116,7 +117,7 @@ export async function insertGooglePlanBlock(input: {
       location: input.location || undefined,
       start: { dateTime: input.startsAt },
       end: { dateTime: input.endsAt },
-      extendedProperties: { private: { chronopilotProposalId: input.proposalId, chronopilotBlockId: input.blockId } }
+      extendedProperties: { private: { chronopilotProposalId: input.proposalId, chronopilotBlockId: input.blockId, ...(input.derivedKind ? { chronopilotDerivedKind: input.derivedKind } : {}) } }
     })
   });
   if (response.status === 409) {

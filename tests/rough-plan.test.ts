@@ -75,7 +75,7 @@ describe("computeDailyDerivedBlocks", () => {
   it("derives a homecoming time per day from that day's actual last calendar event", () => {
     const result = computeDailyDerivedBlocks({
       proposalId, now: new Date("2026-07-20T01:00:00.000Z"), horizonDays: 3, timezoneOffsetMinutes: -540, defaultTravelMinutes: 30,
-      items: [{ title: "帰宅", reason: "毎日の帰宅時間を提案" }],
+      items: [{ title: "帰宅", reason: "毎日の帰宅時間を提案" }], existingDerived: [],
       busy: [
         { title: "仕事", startsAt: "2026-07-20T08:00:00.000Z", endsAt: "2026-07-20T09:00:00.000Z" },
         { title: "会議", startsAt: "2026-07-21T09:00:00.000Z", endsAt: "2026-07-21T10:00:00.000Z" }
@@ -91,7 +91,7 @@ describe("computeDailyDerivedBlocks", () => {
   it("ignores personal/routine noise like sleep when picking that day's last obligation", () => {
     const result = computeDailyDerivedBlocks({
       proposalId, now: new Date("2026-07-20T01:00:00.000Z"), horizonDays: 2, timezoneOffsetMinutes: -540, defaultTravelMinutes: 30,
-      items: [{ title: "帰宅", reason: "毎日の帰宅時間を提案" }],
+      items: [{ title: "帰宅", reason: "毎日の帰宅時間を提案" }], existingDerived: [],
       busy: [
         { title: "睡眠", startsAt: "2026-07-19T14:00:00.000Z", endsAt: "2026-07-19T22:28:00.000Z" },
         { title: "ゼミ", startsAt: "2026-07-20T08:00:00.000Z", endsAt: "2026-07-20T09:00:00.000Z" },
@@ -108,10 +108,35 @@ describe("computeDailyDerivedBlocks", () => {
   it("never proposes a homecoming time that has already passed today", () => {
     const result = computeDailyDerivedBlocks({
       proposalId, now: new Date("2026-07-20T12:00:00.000Z"), horizonDays: 1, timezoneOffsetMinutes: -540, defaultTravelMinutes: 30,
-      items: [{ title: "帰宅", reason: "毎日の帰宅時間を提案" }],
+      items: [{ title: "帰宅", reason: "毎日の帰宅時間を提案" }], existingDerived: [],
       busy: [{ title: "仕事", startsAt: "2026-07-20T08:00:00.000Z", endsAt: "2026-07-20T09:00:00.000Z" }]
     });
     expect(result.scheduled).toHaveLength(0);
+  });
+
+  it("updates a previously auto-generated homecoming event instead of creating a duplicate", () => {
+    const result = computeDailyDerivedBlocks({
+      proposalId, now: new Date("2026-07-20T01:00:00.000Z"), horizonDays: 1, timezoneOffsetMinutes: -540, defaultTravelMinutes: 30,
+      items: [{ title: "帰宅", reason: "毎日の帰宅時間を提案" }],
+      busy: [{ title: "仕事", startsAt: "2026-07-20T08:00:00.000Z", endsAt: "2026-07-20T09:00:00.000Z" }],
+      existingDerived: [{ id: "evt-old", title: "毎日の帰宅時間の提案", startsAt: "2026-07-20T04:00:00.000Z", endsAt: "2026-07-20T04:05:00.000Z" }]
+    });
+    expect(result.scheduled).toHaveLength(0);
+    expect(result.updates).toHaveLength(1);
+    expect(result.updates[0].event?.id).toBe("evt-old");
+    expect(result.updates[0].newStartsAt).toBe("2026-07-20T09:40:00.000Z");
+    expect(result.updates[0].confidence).toBe("matched");
+  });
+
+  it("leaves an existing homecoming event alone when the newly derived time barely changes", () => {
+    const result = computeDailyDerivedBlocks({
+      proposalId, now: new Date("2026-07-20T01:00:00.000Z"), horizonDays: 1, timezoneOffsetMinutes: -540, defaultTravelMinutes: 30,
+      items: [{ title: "帰宅", reason: "毎日の帰宅時間を提案" }],
+      busy: [{ title: "仕事", startsAt: "2026-07-20T08:00:00.000Z", endsAt: "2026-07-20T09:00:00.000Z" }],
+      existingDerived: [{ id: "evt-old", title: "帰宅", startsAt: "2026-07-20T09:41:00.000Z", endsAt: "2026-07-20T09:46:00.000Z" }]
+    });
+    expect(result.scheduled).toHaveLength(0);
+    expect(result.updates).toHaveLength(0);
   });
 });
 
@@ -129,7 +154,7 @@ describe("buildRoughPlanResponse", () => {
     const existingEvents: ExistingEventCandidate[] = [{ id: "evt-1", title: "田中さんとMTG", startsAt: "2026-07-27T04:00:00.000Z", endsAt: "2026-07-27T05:00:00.000Z" }];
     const result = buildRoughPlanResponse({
       proposalId, plan, now: new Date("2026-07-20T01:00:00.000Z"), timezoneOffsetMinutes: -540,
-      workdayStartHour: 9, workdayEndHour: 22, horizonDays: 14, busy: [], existingEvents, defaultTravelMinutes: 30
+      workdayStartHour: 9, workdayEndHour: 22, horizonDays: 14, busy: [], existingEvents, existingDerived: [], defaultTravelMinutes: 30
     });
     expect(result.creates.map((c) => c.title)).toEqual(["資料作成", "歯医者"]);
     expect(result.updates).toHaveLength(1);

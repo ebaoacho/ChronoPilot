@@ -75,11 +75,18 @@ export async function POST(request: Request) {
             .eq("user_id", user.id).is("deleted_at", null).lt("starts_at", horizonEnd.toISOString()).gt("ends_at", now.toISOString());
           existingEvents = (rows ?? []).map((row) => ({ id: row.id, title: row.title, startsAt: row.starts_at, endsAt: row.ends_at }));
         }
+        let existingDerived: ExistingEventCandidate[] = [];
+        if (!user.demo && db && plan.items.some((item) => item.action === "daily_derived")) {
+          const { data: rows } = await db.from("external_calendar_events").select("id,title,starts_at,ends_at")
+            .eq("user_id", user.id).is("deleted_at", null).contains("raw", { chronopilotDerivedKind: "daily_homecoming" })
+            .lt("starts_at", horizonEnd.toISOString()).gt("ends_at", now.toISOString());
+          existingDerived = (rows ?? []).map((row) => ({ id: row.id, title: row.title, startsAt: row.starts_at, endsAt: row.ends_at }));
+        }
         const proposalId = crypto.randomUUID();
         const result = buildRoughPlanResponse({
           proposalId, plan, now, timezoneOffsetMinutes: input.timezoneOffsetMinutes,
           workdayStartHour: input.workdayStartHour, workdayEndHour: input.workdayEndHour, horizonDays: input.horizonDays,
-          busy, existingEvents, defaultTravelMinutes
+          busy, existingEvents, existingDerived, defaultTravelMinutes
         });
         if (result.unscheduled.length) warnings.push(`${result.unscheduled.length}件は無理のない空き時間に配置できませんでした。締切や希望時間帯を調整して再度お試しください。`);
         warnings.push(...result.notes);
