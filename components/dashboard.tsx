@@ -25,26 +25,53 @@ function freshState():LocalState { return {tasks:[],game:{active:false,sessions:
 const tabItems=[{id:"now" as const,label:"今",icon:Home},{id:"today" as const,label:"今日",icon:ListTodo},{id:"add" as const,label:"追加",icon:CirclePlus},{id:"calendar" as const,label:"カレンダー",icon:CalendarDays},{id:"more" as const,label:"その他",icon:Menu}];
 
 type TodayEvent = { id:string; title:string; startsAt:string; endsAt:string; location?:string };
+type TodayCache = { dayKey:string; events:TodayEvent[]; connected:boolean; cachedAt:string };
+const TODAY_CACHE_KEY = "chronopilot-today-cache";
+
+// A same-day-only local mirror of the last successfully synced Google Calendar
+// response, purely so "今"/"今日" can render instantly and keep working with
+// no network. It is never a data source of its own -- it only ever replays
+// what the server already confirmed was on the real calendar, and is dropped
+// the moment the calendar date changes so a new day never shows yesterday's
+// leftovers.
+function readTodayCache(dayKey:string):TodayCache|undefined{
+  try{
+    const raw=localStorage.getItem(TODAY_CACHE_KEY);
+    if(!raw)return undefined;
+    const parsed=JSON.parse(raw) as TodayCache;
+    return parsed.dayKey===dayKey?parsed:undefined;
+  }catch{return undefined}
+}
+function writeTodayCache(cache:TodayCache){
+  try{localStorage.setItem(TODAY_CACHE_KEY,JSON.stringify(cache))}catch{/* storage unavailable (private browsing, quota) */}
+}
 
 function useTodayEvents(demo:boolean){
   const [events,setEvents]=useState<TodayEvent[]>([]);
   const [connected,setConnected]=useState(false);
   const [loading,setLoading]=useState(false);
+  const [offline,setOffline]=useState(false);
+  const [cachedAt,setCachedAt]=useState<string>();
   const load=useCallback(async()=>{
     if(demo){setEvents([]);setConnected(false);return}
+    const range=getCalendarRange(new Date(),"day");
+    const dayKey=format(range.start,"yyyy-MM-dd");
+    const cached=readTodayCache(dayKey);
+    if(cached){setEvents(cached.events);setConnected(cached.connected);setCachedAt(cached.cachedAt)}
     setLoading(true);
     try{
-      const range=getCalendarRange(new Date(),"day");
       const response=await fetch(`/api/calendar/events?start=${encodeURIComponent(range.start.toISOString())}&end=${encodeURIComponent(range.end.toISOString())}`);
       const body=await response.json() as {events?:Array<{id:string;title:string;starts_at:string;ends_at:string;location?:string}>;connected?:boolean};
       if(response.ok){
-        setEvents((body.events??[]).map(event=>({id:event.id,title:event.title,startsAt:event.starts_at,endsAt:event.ends_at,location:event.location})));
-        setConnected(Boolean(body.connected));
+        const mapped=(body.events??[]).map(event=>({id:event.id,title:event.title,startsAt:event.starts_at,endsAt:event.ends_at,location:event.location}));
+        setEvents(mapped);setConnected(Boolean(body.connected));setOffline(false);setCachedAt(undefined);
+        writeTodayCache({dayKey,events:mapped,connected:Boolean(body.connected),cachedAt:new Date().toISOString()});
       }
-    } finally { setLoading(false); }
+    }catch{ setOffline(true) }
+    finally { setLoading(false); }
   },[demo]);
   useEffect(()=>{ const timer=setTimeout(()=>void load(),0); return ()=>clearTimeout(timer); },[load]);
-  return {events,connected,loading,reload:load};
+  return {events,connected,loading,offline,cachedAt,reload:load};
 }
 
 export function Dashboard({demo,email,settings}:{demo:boolean;email:string;settings:OnboardingInitialValues}) {
@@ -66,8 +93,8 @@ export function Dashboard({demo,email,settings}:{demo:boolean;email:string;setti
     <aside className="desktop-side"><div style={{fontWeight:800,fontSize:20,margin:"0 12px 28px"}}>ChronoPilot</div>{tabItems.map(({id,label})=><button key={id} className={tab===id?"active":""} onClick={()=>setTab(id)}>{label}</button>)}<small className="muted" style={{marginTop:"auto",padding:12}}>{demo?"デモモード":email}</small></aside>
     <main className="content">
       {toast&&<div role="status" className="card" style={{position:"fixed",zIndex:30,top:16,left:"50%",transform:"translateX(-50%)",padding:"12px 16px",width:"max-content",maxWidth:"90%"}}>{toast}</div>}
-      {tab==="now"&&<NowView now={now} blocks={todayBlocks} reloadToday={()=>void today.reload()} onCalendarAdded={(block)=>addPlannerBlocks([block])} settings={settings} state={state} setState={setState} message={message} demo={demo}/>}
-      {tab==="today"&&<TodayView now={now} blocks={todayBlocks} connected={today.connected} loading={today.loading}/>}
+      {tab==="now"&&<NowView now={now} blocks={todayBlocks} reloadToday={()=>void today.reload()} onCalendarAdded={(block)=>addPlannerBlocks([block])} settings={settings} state={state} setState={setState} message={message} demo={demo} offline={today.offline} cachedAt={today.cachedAt}/>}
+      {tab==="today"&&<TodayView now={now} blocks={todayBlocks} connected={today.connected} loading={today.loading} offline={today.offline} cachedAt={today.cachedAt}/>}
       {tab==="add"&&<AddView demo={demo} setState={setState} onRegistered={(blocks)=>addPlannerBlocks(blocks)} onDone={(destination="today")=>setTab(destination)} message={message}/>}
       {tab==="calendar"&&<CalendarView blocks={plannerBlocks} demo={demo} onPlanAdded={(suggestions)=>addPlannerBlocks(suggestions)} onPlanDeleted={(ids)=>{setPlannerBlocks(current=>current.filter(block=>!ids.includes(block.id)));void today.reload()}}/>}
       {tab==="more"&&<MoreView state={state} setState={setState} message={message} demo={demo}/>}
@@ -76,7 +103,7 @@ export function Dashboard({demo,email,settings}:{demo:boolean;email:string;setti
   </div>;
 }
 
-function NowView({now,blocks,reloadToday,onCalendarAdded,settings,state,setState,message,demo}:{now:Date|null;blocks:PlanBlock[];reloadToday:()=>void;onCalendarAdded:(block:PlanBlock)=>void;settings:OnboardingInitialValues;state:LocalState;setState:React.Dispatch<React.SetStateAction<LocalState>>;message:(v:string)=>void;demo:boolean}){
+function NowView({now,blocks,reloadToday,onCalendarAdded,settings,state,setState,message,demo,offline,cachedAt}:{now:Date|null;blocks:PlanBlock[];reloadToday:()=>void;onCalendarAdded:(block:PlanBlock)=>void;settings:OnboardingInitialValues;state:LocalState;setState:React.Dispatch<React.SetStateAction<LocalState>>;message:(v:string)=>void;demo:boolean;offline:boolean;cachedAt?:string}){
   const active=useMemo(()=>now?getCurrentAndNext(blocks,now):{current:undefined,next:undefined,remainingMinutes:0},[blocks,now]);
   const {current,next,remainingMinutes:remaining}=active;
   const isWeekend=now?[0,6].includes(now.getDay()):false;
@@ -85,7 +112,9 @@ function NowView({now,blocks,reloadToday,onCalendarAdded,settings,state,setState
   const disposable=calculateDisposableTime({remainingMinutes:Math.max(0,24*60-(now?now.getHours()*60+now.getMinutes():0)),sleepMinutes:settings.targetSleepMinutes,fixedMinutes:Math.round(fixedMinutes),travelMinutes:upcomingToday.length?settings.defaultTravelMinutes:0,lifeMinutes:90,requiredTaskMinutes:state.tasks.filter(t=>t.required).reduce((n,t)=>n+t.estimateMinutes,0),growthMinutes:30,bufferMinutes:20,uncertainMinutes:15,desiredGameMinutes:isWeekend?settings.holidayGameMinutes:settings.weekdayGameMinutes});
   const shown=current??next; const free=!shown;
   function toggleGame(){ const date=new Date(); if(state.game.active){if(!demo)void sendOrQueue({url:"/api/records",method:"POST",body:{table:"game_sessions",name:"ゲーム",occurredAt:state.game.startedAt,data:{startedAt:state.game.startedAt,endedAt:date.toISOString(),plannedEnd:state.game.plannedEnd}}}).catch(()=>{});setState(s=>({...s,game:{active:false,sessions:s.game.sessions+1}}));message("ゲームを記録しました。楽しめた時間も大切な休息です")}else{const mins=disposable.safeGameMinutes;setState(s=>({...s,game:{...s.game,active:true,startedAt:date.toISOString(),plannedEnd:addMinutes(date,mins).toISOString()}}));message(`${mins}分のゲーム時間を開始しました`)} }
-  return <><div className="clock" suppressHydrationWarning>{now?format(now,"H:mm"):"--:--"}</div><section className="card hero">
+  return <><div className="clock" suppressHydrationWarning>{now?format(now,"H:mm"):"--:--"}</div>
+    {offline&&<p className="planner-note">オフラインのため、{cachedAt?`${format(new Date(cachedAt),"H:mm")}時点にキャッシュした`:"最後に取得できた"}予定を表示しています。</p>}
+    <section className="card hero">
     <div className="eyebrow">{state.game.active?"ゲーム中":free?"今は自由時間です":"今やること"}</div>
     <h1>{state.game.active?"安心してゲームを楽しむ":free?`ゲームを${disposable.safeGameMinutes}分できます`:shown?.title}</h1>
     {shown&&!state.game.active&&<p className="muted">{format(new Date(shown.startsAt),"H:mm")}〜{format(new Date(shown.endsAt),"H:mm")} · {current?`残り${remaining}分`:"次の予定"}</p>}
@@ -98,10 +127,11 @@ function NowView({now,blocks,reloadToday,onCalendarAdded,settings,state,setState
 function Metric({label,value}:{label:string;value:string}){return <div className="metric"><span className="muted">{label}</span><strong>{value}</strong></div>}
 function minutes(value:number){return value>=60?`${Math.floor(value/60)}時間${value%60?`${value%60}分`:""}`:`${value}分`}
 
-function TodayView({now,blocks,connected,loading}:{now:Date|null;blocks:PlanBlock[];connected:boolean;loading:boolean}){
+function TodayView({now,blocks,connected,loading,offline,cachedAt}:{now:Date|null;blocks:PlanBlock[];connected:boolean;loading:boolean;offline:boolean;cachedAt?:string}){
   const sorted=useMemo(()=>[...blocks].sort((a,b)=>a.startsAt.localeCompare(b.startsAt)),[blocks]);
   const done=now?sorted.filter(b=>new Date(b.endsAt)<=now).length:0;
   return <><div className="eyebrow">{now?format(now,"M月d日 EEEE",{locale:ja}):"今日"}</div><div className="section-title"><h1 style={{margin:0}}>今日</h1><span className="pill">{sorted.length?`${done}/${sorted.length} 終了`:"予定なし"}</span></div>
+    {offline&&<p className="planner-note">オフラインのため、{cachedAt?`${format(new Date(cachedAt),"H:mm")}時点にキャッシュした`:"最後に取得できた"}予定を表示しています。</p>}
     <div className="card timeline">{sorted.length?sorted.map(block=><div className="timeline-item" key={block.id}><small>{format(new Date(block.startsAt),"H:mm")}</small><span className={`timeline-line ${now&&new Date(block.startsAt)<=now&&now<new Date(block.endsAt)?"active":""}`}/><div><strong style={{textDecoration:now&&new Date(block.endsAt)<=now?"line-through":"none"}}>{block.title}</strong><div className="muted" style={{fontSize:13}}>{kindName(block.kind)} · {minutes(Math.max(0,(new Date(block.endsAt).getTime()-new Date(block.startsAt).getTime())/60000))}</div></div></div>):<p className="muted">{loading?"予定を読み込んでいます…":connected?"今日、Google Calendarに登録された予定はありません。":"Google Calendar未接続です。「その他」→「設定」から接続すると、実際の予定がここに表示されます。"}</p>}</div>
     </> }
 function kindName(kind:PlanBlock["kind"]){return ({sleep:"睡眠",routine:"ルーティン",event:"予定",travel:"移動",task:"必須タスク",meal:"食事",break:"休憩",growth:"成長",game:"ゲーム",free:"自由時間"})[kind]}
